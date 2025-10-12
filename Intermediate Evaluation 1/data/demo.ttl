@@ -1,0 +1,10 @@
+@prefix : <http://example.org/kg#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+:GoodWillHunting a :Movie ;
+  :title "Good Will Hunting" ;
+  :releaseYear "1997"^^xsd:gYear ;
+  :director :GusVanSant .
+
+:GusVanSant a :Person ;
+  :name "Gus Van Sant" .

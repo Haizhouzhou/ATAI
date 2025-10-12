@@ -1,0 +1,21 @@
+# 1) Non-SPARQL  => "Please input SPARQL query."
+Who is the director of Good Will Hunting?
+
+# 2) Syntax error => "Invalid SPARQL. Please check syntax."
+SELECT ?s WHERE { ?s ?p ?o
+
+# 3) No-match (SELECT) => "No results in the provided dataset."
+SELECT ?s ?p ?o WHERE { ?s ?p ?o . FILTER(false) }
+
+# 4) No-match (ASK) => "false"
+ASK WHERE { ?s ?p ?o . FILTER(false) }
+
+# 5) No-match (CONSTRUCT) => "No results in the provided dataset."
+CONSTRUCT { ?s ?p ?o } WHERE { ?s ?p ?o . FILTER(false) }
+
+# 6) (Optional) Heavy query to try timeout (may or may not hit timeout)
+# SELECT ?s ?p ?o WHERE { ?s ?p ?o . }
+
+# 7) Your real query (fill in prefixes and predicates according to your dataset)
+# PREFIX : <http://example.org/kg#>
+# SELECT ?m ?d WHERE { ?m a :Movie ; :title "Good Will Hunting" ; :director ?d . } LIMIT 5
