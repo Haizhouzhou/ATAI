@@ -1,0 +1,7 @@
+cd /files; export PS1="\\u@nuvolos:\w$ \[$(tput sgr0)\]"; if [ -d /dhlib/conda-meta ]; then CONDA_ENV_NAME=/dhlib; else CONDA_ENV_NAME=base; fi; if [[ ! -z "${CONDA_DIR}" ]]; then source ${CONDA_DIR}/bin/activate ${CONDA_ENV_NAME}; fi; if [ $(which mamba) ]; then eval orig_"$(declare -f conda)"; conda() { case "$1" in install|uninstall) mamba $@ ;;*) orig_conda $@;; esac; }; fi;
+export OPENBLAS_NUM_THREADS=1; export MKL_NUM_THREADS=1; export OMP_NUM_THREADS=1;
+
+
+if [ -f /files/.nuvolos/.bashrc ];
+    then . /files/.nuvolos/.bashrc
+fi
