@@ -1,7 +1,7 @@
 import re
 import logging
 from pathlib import Path
-from typing import List, Tuple, Optional, Union
+from typing import List, Tuple, Optional, Union, Dict
 
 from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeout
 from rdflib import Graph
@@ -49,6 +49,34 @@ def set_default_graph_from_path(path: Union[str, Path]) -> Graph:
     g.parse(str(path))  # rdflib infers format from the file extension
     set_default_graph(g)
     return g
+
+def ensure_default_graph_loaded() -> Tuple[Graph, Dict]:
+    """
+    Ensure a module-level default Graph is available.
+    If not yet loaded, load it using app_config.DATA_TARGETS via loader.load_graph(),
+    set it as the default graph, and return (graph, stats).
+
+    Returns:
+        (Graph, stats_dict)
+    """
+    global _DEFAULT_GRAPH
+    if _DEFAULT_GRAPH is not None:
+        # A default graph is already set; return it with empty stats
+        return _DEFAULT_GRAPH, {"files_loaded": None, "triples": len(_DEFAULT_GRAPH)}
+
+    # Lazy imports to avoid any circular import issues
+    from .app_config import DATA_TARGETS
+    from .loader import load_graph
+
+    g, stats = load_graph(DATA_TARGETS)
+    set_default_graph(g)
+
+    logging.info(
+        "[KG] default graph loaded: files_loaded=%s triples=%s",
+        stats.get("files_loaded", 0),
+        stats.get("triples", 0),
+    )
+    return g, stats
 
 
 def is_ready() -> bool:

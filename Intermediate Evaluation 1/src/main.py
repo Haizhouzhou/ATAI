@@ -1,10 +1,8 @@
 import sys
 import readline  # command history in Linux shells
-from pathlib import Path
 
-from .app_config import DATA_TARGETS, DEFAULT_SELECT_LIMIT, AUTO_LIMIT
-from .loader import load_graph
-from .executor import set_default_graph, is_ready, run_query, ensure_default_graph_loaded
+from .app_config import DEFAULT_SELECT_LIMIT, AUTO_LIMIT
+from .executor import run_query, ensure_default_graph_loaded
 
 BANNER = """\
 SPARQL Runner — ATAI Intermediate (1)
@@ -38,37 +36,29 @@ def read_multiline() -> str:
         lines.append(line)
     return "\n".join(lines).strip()
 
-def handle_user_query(text: str) -> str:
-    ensure_default_graph_loaded()
-
-    sparql = expand_macros(text)  
-    kind, out = run_query(sparql) 
-    return format_result((kind, out))  
 
 def main():
     print(BANNER)
     print("Loading data (with caps) ...")
-    g, stats = load_graph(DATA_TARGETS)
-
-   set_default_graph(g)
+    g, stats = ensure_default_graph_loaded()
 
     # runtime state (start from app_config defaults)
     auto_limit = bool(AUTO_LIMIT)
     default_limit = int(DEFAULT_SELECT_LIMIT)
 
     print(f"\n[Load Summary]")
-    print(f"  Files considered : {stats.get('files_considered', 0)}")
     print(f"  Files loaded     : {stats.get('files_loaded', 0)}")
-    print(f"  Total triples    : {stats.get('triples', 0)}")
-    print(f"  Total bytes read : {stats.get('total_bytes', 0)}")
-    print("  Items (first 12):")
-    for it in stats["items"][:12]:
-        mark = "OK" if it["loaded"] else f"SKIP ({it.get('reason','')})"
-        fmt = it.get("format", "")
-        size = it.get("bytes", 0)
-        print(f"   - {it['path']}  [{fmt}]  {size} bytes  => {mark}")
-    if len(stats["items"]) > 12:
-        print(f"   ... ({len(stats['items']) - 12} more)")
+    print(f"  Total triples    : {stats.get('triples', len(g) if g is not None else 0)}")
+    if "items" in stats:
+        print("  Items (first 12):")
+        for it in stats["items"][:12]:
+            mark = "OK" if it.get("loaded") else f"SKIP ({it.get('reason','')})"
+            fmt = it.get("format", "")
+            size = it.get("bytes", 0)
+            print(f"   - {it['path']}  [{fmt}]  {size} bytes  => {mark}")
+        more = len(stats["items"]) - 12
+        if more > 0:
+            print(f"   ... ({more} more)")
 
     print(f"\n[Settings] auto-limit for SELECT: {'ON' if auto_limit else 'OFF'} (default LIMIT {default_limit})\n")
     print("Type ':help' for commands.\n")
@@ -102,7 +92,6 @@ def main():
                 print(f"auto-limit: {'ON' if auto_limit else 'OFF'} (LIMIT {default_limit})")
                 continue
             elif len(parts) == 2:
-                # try parse integer limit
                 try:
                     val = int(parts[1])
                     if val <= 0:
@@ -117,12 +106,11 @@ def main():
                 print("Usage: ':al on|off' or ':al <positive-integer>'")
                 continue
 
-        # execute with explicit config (no hidden globals)
+        # Execute using the default graph (no need to pass g explicitly)
         kind, out = run_query(
-            g,
             s,
             auto_limit=auto_limit,
-            default_limit=default_limit
+            default_limit=default_limit,
         )
         print(out)
 

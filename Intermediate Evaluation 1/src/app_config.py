@@ -48,4 +48,4 @@ MSG_NORESULT    = "No results in the provided dataset."
 
 # ===== Optional safety: auto LIMIT for SELECT without LIMIT =====
 AUTO_LIMIT = True
-DEFAULT_SELECT_LIMIT = 50
+DEFAULT_SELECT_LIMIT = 500
