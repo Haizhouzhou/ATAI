@@ -3,13 +3,17 @@ from dataclasses import dataclass
 from typing import List, Dict, Optional
 import logging
 import numpy as np
-from sklearn.metrics import pairwise_distances
 
-from .config import DATA_ROOT, EMBED_SUBDIR_CANDIDATES, EMBED_PATTERNS
+from rdflib import URIRef
+
+from .config import EMBED_SUBDIR_CANDIDATES, EMBED_PATTERNS
 from .graph_executor import GraphExecutor
 from .utils import pick_first_file
 
 log = logging.getLogger(__name__)
+
+MAX_TAILS = 20000
+TOPK = 3
 
 @dataclass
 class EmbeddingHit:
@@ -25,12 +29,16 @@ class EmbeddingResult:
 class EmbeddingExecutor:
     def __init__(self, graph_exec: GraphExecutor):
         self.ge = graph_exec
-        self.entity_vecs = None
-        self.relation_vecs = None
+        self.entity_vecs: Optional[np.ndarray] = None
+        self.entity_vecs_norm: Optional[np.ndarray] = None
+        self.relation_vecs: Optional[np.ndarray] = None
+        self.relation_vecs_norm: Optional[np.ndarray] = None
+
         self.ent2id: Dict[str,int] = {}
         self.id2ent: Dict[int,str] = {}
         self.rel2id: Dict[str,int] = {}
         self.id2rel: Dict[int,str] = {}
+
         self._predicate_tail_set: Dict[str, List[str]] = {}
         self._load_embeddings()
 
@@ -75,46 +83,61 @@ class EmbeddingExecutor:
         self.rel2id = load_map(rel_ids)
         self.id2ent = {v:k for k,v in self.ent2id.items()}
         self.id2rel = {v:k for k,v in self.rel2id.items()}
-        self.entity_vecs = np.load(ent_vec)
-        self.relation_vecs = np.load(rel_vec)
-        log.info("Embeddings loaded: entities %s, relations %s",
+
+        self.entity_vecs = np.load(ent_vec).astype(np.float32)
+        self.relation_vecs = np.load(rel_vec).astype(np.float32)
+
+        def l2norm(X: np.ndarray) -> np.ndarray:
+            eps = 1e-12
+            n = np.linalg.norm(X, axis=1, keepdims=True)
+            n = np.maximum(n, eps)
+            return X / n
+
+        self.entity_vecs_norm = l2norm(self.entity_vecs)
+        self.relation_vecs_norm = l2norm(self.relation_vecs)
+        log.info("Embeddings loaded & normalized: entities %s, relations %s",
                  self.entity_vecs.shape, self.relation_vecs.shape)
 
     def _predicate_tails(self, predicate_iri: str) -> List[str]:
         if predicate_iri in self._predicate_tail_set:
             return self._predicate_tail_set[predicate_iri]
-        tails = set()
-        pred = predicate_iri
-        for s, p, o in self.ge.g.triples((None, None, None)):
-            if str(p) == pred:
-                val = str(o)
-                if val.startswith("http://") or val.startswith("https://"):
-                    tails.add(val)
-        self._predicate_tail_set[predicate_iri] = list(tails)
-        return self._predicate_tail_set[predicate_iri]
 
-    def _entity_vec(self, iri: str):
+        pred_ref = URIRef(predicate_iri)
+        tails = set()
+        for _, _, o in self.ge.g.triples((None, pred_ref, None)):
+            val = str(o)
+            if val.startswith("http://") or val.startswith("https://"):
+                tails.add(val)
+
+        filtered = [iri for iri in tails if iri in self.ent2id]
+
+        if len(filtered) > MAX_TAILS:
+            step = max(1, len(filtered) // MAX_TAILS)
+            filtered = filtered[::step][:MAX_TAILS]
+
+        self._predicate_tail_set[predicate_iri] = filtered
+        return filtered
+
+    def _entity_vec_norm(self, iri: str) -> Optional[np.ndarray]:
         eid = self.ent2id.get(iri)
         if eid is None:
             return None
-        return self.entity_vecs[eid]
+        return self.entity_vecs_norm[eid]
 
-    def _relation_vec(self, predicate_iri: str):
+    def _relation_vec_norm(self, predicate_iri: str) -> Optional[np.ndarray]:
         rid = self.rel2id.get(predicate_iri)
         if rid is None:
             return None
-        return self.relation_vecs[rid]
+        return self.relation_vecs_norm[rid]
 
     def _pretty_label(self, iri: str) -> str:
         labs = self.ge._labels(iri)
         if labs:
             return labs[0]
-        # fallback to Q-id if no label present in this dataset
         return iri.rsplit("/", 1)[-1]
 
     def _round_score(self, x: float) -> float:
-        # clamp to [-1, 1], round to 4 decimals, avoid perfect 1.0 saturation
-        x = max(-1.0, min(1.0, x))
+        x = float(np.clip(x, -1.0, 1.0))
         r = round(x, 4)
         if r >= 0.99995:
             return 0.9999
@@ -123,41 +146,43 @@ class EmbeddingExecutor:
     def query_embedding(self, candidates, relation_spec) -> Optional[EmbeddingResult]:
         if not candidates or not relation_spec:
             return None
-        rvec = self._relation_vec(relation_spec.predicate)
+
+        rvec = self._relation_vec_norm(relation_spec.predicate)
         if rvec is None:
             return None
 
-        # pick the first subject candidate that has an embedding
         subj_vec = None
         subj_iri = None
         subj_label = None
         for c in candidates:
-            v = self._entity_vec(c.iri)
+            v = self._entity_vec_norm(c.iri)
             if v is not None:
                 subj_vec = v; subj_iri = c.iri; subj_label = c.label
                 break
         if subj_vec is None:
             return None
 
-        # gather predicate-tail candidates (type-filtered via KG)
         tail_iris = self._predicate_tails(relation_spec.predicate)
-        tail_ids = [self.ent2id[i] for i in tail_iris if i in self.ent2id]
-        if not tail_ids:
+        if not tail_iris:
             return None
-        tail_mat = self.entity_vecs[tail_ids]
+        tail_ids = [self.ent2id[i] for i in tail_iris]
+        tail_mat = self.entity_vecs_norm[tail_ids]
 
-        # Simple TransE-like composition: h + r, then cosine similarity
         target = subj_vec + rvec
-        dists = pairwise_distances(target.reshape(1, -1), tail_mat, metric="cosine")[0]
-        order = np.argsort(dists)  # smaller is closer
+        target /= max(np.linalg.norm(target), 1e-12)
+
+        sims = tail_mat @ target
+
+        k = min(TOPK, sims.shape[0])
+        idx_part = np.argpartition(-sims, k-1)[:k]
+        idx_sorted = idx_part[np.argsort(-sims[idx_part])]
 
         top_hits: List[EmbeddingHit] = []
-        for idx in order[:3]:
-            ent_id = tail_ids[idx]
+        for j in idx_sorted:
+            ent_id = tail_ids[j]
             iri = self.id2ent[ent_id]
             label = self._pretty_label(iri)
-            sim = 1.0 - float(dists[idx])
-            score = self._round_score(sim)
+            score = self._round_score(sims[j])
             top_hits.append(EmbeddingHit(label=label, iri=iri, score=score))
 
         return EmbeddingResult(

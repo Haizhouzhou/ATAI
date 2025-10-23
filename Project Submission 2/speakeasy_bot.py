@@ -11,7 +11,6 @@ SPEAKEASY_HOST = os.getenv("SPEAKEASY_HOST", "https://speakeasy.ifi.uzh.ch")
 SPEAKEASY_USER = os.getenv("SPEAKEASY_USER", "RedFlickeringCandle")
 SPEAKEASY_PASS = os.getenv("SPEAKEASY_PASS", "Sv9Kx0sH")
 
-# 你的本地后端地址（uvicorn 正在跑的那个）
 BACKEND_ASK_URL = os.getenv("BACKEND_ASK_URL", "http://localhost:8000/ask")
 BACKEND_HEALTH_URL = os.getenv("BACKEND_HEALTH_URL", "http://localhost:8000/health")
 
@@ -63,7 +62,6 @@ def on_new_message(message: str, room):
         room.post_messages("Internal error while contacting backend.")
 
 def main():
-    # 简单健康检查，便于排错
     try:
         h = requests.get(BACKEND_HEALTH_URL, timeout=5)
         logging.info("Backend health: %s", h.text)
