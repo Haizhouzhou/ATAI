@@ -10,18 +10,33 @@ class AnswerComposer:
 
         # factual
         if factual and factual.values:
-            resp["factual_answer"] = {"answer": factual.values, "meta": factual.meta}
-        elif factual and not factual.values:
-            resp["factual_answer"] = {
-                "answer": [],
-                "meta": factual.meta | {"note": "Not found in KG"},
-            }
+            # Convert factual answers to natural language if possible
+            answers = factual.values
+            relation = factual.meta.get("relation", "").lower()
+
+            # Simple natural language templates
+            if "director" in relation:
+                text = f"I think it is {', '.join(answers)}."
+            elif "screenwriter" in relation or "writer" in relation:
+                text = f"I think it was written by {', '.join(answers)}."
+            elif "publication_date" in relation or "release" in relation:
+                text = f"It was released in {', '.join(answers)}."
+            elif "genre" in relation:
+                text = f"It belongs to the genre of {', '.join(answers)}."
+            elif "production_company" in relation:
+                text = f"It was produced by {', '.join(answers)}."
+            else:
+                text = f"I think it is {', '.join(answers)}."
+
+            resp["factual_answer"] = {"answer": [text], "meta": factual.meta}
 
         # embedding
         if embedding and embedding.topk:
             top1 = embedding.topk[0]
+            # Convert embedding answer to natural language
+            text = f"The answer suggested by embeddings: {top1.label}."
             resp["embedding_answer"] = {
-                "answer": f"(Embedding Answer) {top1.label}",
+                "answer": text,
                 "score": top1.score,
                 "meta": {
                     **embedding.meta,
