@@ -5,36 +5,38 @@ from .constants import RELATIONS, RelationSpec
 # keyword buckets → relation key
 KEYWORDS = {
     "director": {
-        "director", "directed", "filmmaker", "made",
+        "director", "directed", "filmmaker", "made", "who directed", "who is the director",
     },
     "screenwriter": {
-        "screenwriter", "writer", "wrote", "written",
+        "screenwriter", "writer", "wrote", "written", "who wrote", "who is the screenwriter",
     },
     "publication_date": {
-        # robust release-date triggers
-        "release", "released", "release-date", "publication", "premiere", "premiered",
-        "come", "came", "out",  # supports "come out", "came out"
-        "when",  # with other tokens usually signals a date question
+        "release", "when did it come out", "publication", "premiere", "come out",
+        "release date", "when was released", "what is the release date of",
     },
     "genre": {
-        "genre", "category", "type",
+        "genre", "category", "type", "kind of film", "type of movie", "what genre",
     },
     "duration": {
-        "duration", "runtime", "length",
+        "duration", "runtime", "length", "how long",
     },
     "cast_member": {
-        "actor", "actress", "cast", "starring", "played",
+        "actor", "actress", "cast", "starring", "played", "who is in the cast", "who played",
     },
     "original_language": {
-        "language",
+        "language", "what language",
     },
     "production_company": {
-        "production", "studio", "company",
+        "production", "studio", "company", "made by", "produced",
     },
     "mpaa_rating": {
-        "mpaa", "rating",
+        "mpaa", "rating", "age rating",
+    },
+    "country": {  # adding country 
+        "from which country", "country", "origin", "where is it from", "what country","produced in", "filmed in", "where was it filmed", "production location"
     },
 }
+
 
 class RelationMapper:
     def __init__(self):

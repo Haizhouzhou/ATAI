@@ -39,17 +39,26 @@ def ask(req: AskRequest):
     factual = None
     embedding = None
 
-    # Factual first (if we have entity + relation)
-    if candidates and rel:
+    if nlq.intent == "factual":
         factual = ge.query_factual(candidates, rel)
 
-    # Embedding next if requested/needed (Both default or explicit embedding intent)
-    if nlq.intent in ("embedding", "both") and candidates and rel:
+    if nlq.intent == "embedding":
         embedding = ee.query_embedding(candidates, rel)
 
-    # Fallback: if intent was factual but KG has no answer, still try embedding as backup
-    if nlq.intent == "factual" and (not factual or not factual.values):
-        if candidates and rel:
-            embedding = ee.query_embedding(candidates, rel)
+    if nlq.intent == "both":
+        embedding = ee.query_embedding(candidates, rel)
+        factual = ge.query_factual(candidates, rel)
+    # # Factual first (if we have entity + relation)
+    # if candidates and rel:
+    #     factual = ge.query_factual(candidates, rel)
+
+    # # Embedding next if requested/needed (Both default or explicit embedding intent)
+    # if nlq.intent in ("embedding", "both") and candidates and rel:
+    #     embedding = ee.query_embedding(candidates, rel)
+
+    # # Fallback: if intent was factual but KG has no answer, still try embedding as backup
+    # if nlq.intent == "factual" and (not factual or not factual.values):
+    #     if candidates and rel:
+    #         embedding = ee.query_embedding(candidates, rel)
 
     return ac.compose(factual, embedding)
