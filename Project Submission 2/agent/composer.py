@@ -49,7 +49,7 @@ class AnswerComposer:
             # text = f"The answer suggested by embeddings is: {top1.label}."
             resp["embedding_answer"] = {
                 "answer": [text],
-                "score": top1.score,
+                # "score": top1.score (only need type)
                 "meta": {
                     **embedding.meta,
                     "topk": [h.__dict__ for h in embedding.topk],

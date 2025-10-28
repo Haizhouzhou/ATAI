@@ -4,12 +4,16 @@ from typing import List, Optional, Dict, Set
 import logging
 
 from rdflib import Graph, Namespace, URIRef, Literal
+from rdflib.namespace import RDF, RDFS, SKOS, XSD
 
 from .config import DATA_ROOT, KG_FILE_PATTERNS
 from .utils import pick_first_file
 
 log = logging.getLogger(__name__)
 RDFS = Namespace("http://www.w3.org/2000/01/rdf-schema#")
+
+SCHEMA = Namespace("http://schema.org/")
+WDT = Namespace("http://www.wikidata.org/prop/direct/")
 
 @dataclass
 class FactualResult:
@@ -33,13 +37,21 @@ class GraphExecutor:
         g.parse(kg_file)
         return g
 
+    def _types(self, iri: str) -> List[str]:
+        s = URIRef(iri)
+        types: Set[str] = set()
+        for _, _, t in self.g.triples((s, RDF.type, None)):
+            types.add(str(t))
+        for _, _, t in self.g.triples((s, WDT.P31, None)):  # Wikidata
+            types.add(str(t))
+        return sorted(types)
+
     def _labels(self, iri: str) -> List[str]:
         out: Set[str] = set()
         s = URIRef(iri)
-        for _, _, o in self.g.triples((s, RDFS.label, None)):
-            if isinstance(o, Literal):
-                out.add(str(o))
-            else:
+        label_props = [RDFS.label, SKOS.prefLabel, SKOS.altLabel, SCHEMA.name, WDT.P1476]
+        for lp in label_props:
+            for _, _, o in self.g.triples((s, lp, None)):
                 out.add(str(o))
         return sorted(out)
 
@@ -61,19 +73,10 @@ class GraphExecutor:
                         values.extend(labs)
             values = sorted(list(dict.fromkeys(values)))  # unique, stable
             if values:
-                # For dates, also extract year view if yyyy-mm-dd present
-                display = []
-                for v in values:
-                    if len(v) >= 10 and v[4] == "-" and v[7] == "-":
-                        display.append(v)
-                        display.append(v[:4])
-                    else:
-                        display.append(v)
-                display = list(dict.fromkeys(display))
-                return FactualResult(values=display, meta={
+                return FactualResult(values=values, meta={
                     "source": "KG",
                     "subject_label": cand.label,
                     "subject_iri": cand.iri,
                     "predicate": relation_spec.predicate,
-                })
+                })               
         return FactualResult(values=[], meta={"source": "KG"})
