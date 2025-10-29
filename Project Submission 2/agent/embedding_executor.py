@@ -181,6 +181,42 @@ class EmbeddingExecutor:
         self._predicate_tail_set[predicate_iri] = filtered
         return filtered
 
+    # --- NEW: Head prediction helpers ---
+    
+    def _predicate_heads_for_object(self, predicate_iri: str, object_iri: str) -> List[str]:
+        """Collect heads restricted to a given (?s, p, object) pattern."""
+        pred_ref = URIRef(predicate_iri)
+        obj_ref = URIRef(object_iri)
+        heads: List[str] = []
+        for s, _, _ in self.ge.g.triples((None, pred_ref, obj_ref)):
+            val = str(s)
+            if (val.startswith("http://") or val.startswith("https://")) and (val in self.ent2id):
+                heads.append(val)
+        return heads
+
+    def _predicate_heads(self, predicate_iri: str) -> List[str]:
+        """Collect all heads for a predicate across the graph (global fallback)."""
+        cache_key = f"__HEADS__::{predicate_iri}"
+        if cache_key in self._predicate_tail_set:
+            return self._predicate_tail_set[cache_key]
+
+        pred_ref = URIRef(predicate_iri)
+        heads = set()
+        for s, _, _ in self.ge.g.triples((None, pred_ref, None)):
+            val = str(s)
+            if val.startswith("http://") or val.startswith("https://"):
+                heads.add(val)
+
+        filtered = [iri for iri in heads if iri in self.ent2id]
+        if len(filtered) > MAX_TAILS:
+            step = max(1, len(filtered) // MAX_TAILS)
+            filtered = filtered[::step][:MAX_TAILS]
+
+        self._predicate_tail_set[cache_key] = filtered
+        return filtered
+
+    # --- End new helpers ---
+
     def _entity_vec_norm(self, iri: str) -> Optional[np.ndarray]:
         """Return the normalized embedding vector of an entity, if available."""
         eid = self.ent2id.get(iri)
@@ -248,6 +284,7 @@ class EmbeddingExecutor:
         """
         Produce an embedding-based answer given linked subject candidates and a mapped predicate.
         Returns top-k hits with labels and (short) type; meta includes an expected_type fallback.
+        (Tail prediction: h + r = ?t)
         """
         if not candidates or not relation_spec:
             return None
@@ -313,6 +350,81 @@ class EmbeddingExecutor:
                 "source": "KG-Embeddings",
                 "subject_label": subj_label,
                 "subject_iri": subj_iri,
+                "predicate": relation_spec.predicate,
+                "expected_type": expected_type,
+            },
+        )
+
+    # --- NEW: Head prediction query ---
+    
+    def query_embedding_head(self, tail_candidates, relation_spec) -> Optional[EmbeddingResult]:
+        """
+        Head prediction: given (?h, predicate, tail) return top-k head entities.
+        TransE target: target = tail_vec - rel_vec
+        """
+        if not tail_candidates or not relation_spec:
+            return None
+
+        # relation vector
+        rvec = self._relation_vec_norm(relation_spec.predicate)
+        if rvec is None:
+            return None
+
+        # pick first tail that has an embedding
+        tail_vec = None
+        tail_iri = None
+        tail_label = None
+        for c in tail_candidates:
+            v = self._entity_vec_norm(c.iri)
+            if v is not None:
+                tail_vec = v
+                tail_iri = c.iri
+                tail_label = c.label
+                break
+        if tail_vec is None:
+            return None
+
+        # candidate heads: object-specific first, then global fallback
+        head_iris = self._predicate_heads_for_object(relation_spec.predicate, tail_iri)
+        if not head_iris:
+            head_iris = self._predicate_heads(relation_spec.predicate)
+        if not head_iris:
+            return None
+
+        head_ids = [self.ent2id[i] for i in head_iris]
+        head_mat = self.entity_vecs_norm[head_ids]
+
+        # TransE-style target for head: target = tail - rel
+        target = tail_vec - rvec
+        norm = np.linalg.norm(target)
+        if norm > 1e-12:
+            target = target / norm
+
+        sims = head_mat @ target
+
+        k = min(TOPK, sims.shape[0])
+        idx_part = np.argpartition(-sims, k - 1)[:k]
+        idx_sorted = idx_part[np.argsort(-sims[idx_part])]
+
+        top_hits: List[EmbeddingHit] = []
+        for j in idx_sorted:
+            ent_id = head_ids[j]
+            iri = self.id2ent[ent_id]
+            label = self._pretty_label(iri)
+            score = self._round_score(sims[j])
+            types = self.ge._types(iri)
+            t_short = self._short_tail(types[0]) if types else None
+            top_hits.append(EmbeddingHit(label=label, iri=iri, score=score, type=t_short))
+
+        # Optional: implement a _major_subject_type_for_predicate
+        expected_type = None
+
+        return EmbeddingResult(
+            topk=top_hits,
+            meta={
+                "source": "KG-Embeddings",
+                "object_label": tail_label,
+                "object_iri": tail_iri,
                 "predicate": relation_spec.predicate,
                 "expected_type": expected_type,
             },
