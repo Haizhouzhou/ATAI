@@ -1,0 +1,100 @@
+\documentclass{article}
+
+\usepackage{cite}
+\usepackage{amsmath,amssymb,amsfonts}
+\usepackage{algorithmic}
+\usepackage{graphicx}
+\usepackage{textcomp}
+\usepackage{xcolor}
+\usepackage{url}
+
+\begin{document}
+
+\title{Evaluation Event II - \textit{RedFlickeringCandle}}
+\author{Haizhou Zheng (\textit{haizhou.zheng@uzh.ch})
+\and Zhenmei Hao (\textit{zhenmei.hao@uzh.ch})}
+
+\maketitle
+
+\section{Introduction}
+We build a lightweight but reliable QA agent over a given knowledge graph (KG) that supports two answering routes: a \textbf{factual} route that compiles a SPARQL-style lookup, and an \textbf{embedding} route that retrieves answers in the vector space. If a question explicitly requires a factual (or embedding) approach, the agent only executes that route; otherwise it returns both. The pipeline consists of five modules: NLQ parsing, entity linking, relation mapping, factual/embedding executors, and answer composition. Key features include (i) quote- and case-robust NLQ parsing, (ii) fast and cached entity linking, (iii) \textbf{multi-property} label and type resolution (RDFS/SKOS/Schema.org/Wikidata) from the provided KG file, (iv) a subject-first candidate set for embeddings, and (v) concise natural-language verbalization with de-duplication.
+
+\section{Capabilities}
+\textbf{Overview.}
+\begin{center}
+\ttfamily
+User Query $\rightarrow$ NLQ Parser $\rightarrow$
+\{EntityLinker, RelationMapper\} $\rightarrow$
+\begin{tabular}{|c|}
+\hline
+Factual Executor (RDFlib)\\
+or\\
+Embedding Executor (TransE-style)\\
+\hline
+\end{tabular}
+$\rightarrow$ Answer Composer (verbalization)
+\end{center}
+
+\noindent
+\textbf{Factual questions.}
+(1) The NLQ parser normalizes quotes and extracts entity mentions and relation triggers.
+(2) The EntityLinker builds a label index from the KG and uses RapidFuzz to return top-$k$ entity candidates.
+(3) The RelationMapper maps trigger tokens to a KG predicate IRI.
+(4) The GraphExecutor then reads $(s, p, ?o)$ triples via RDFlib and resolves objects to readable labels from \texttt{rdfs:label}, \texttt{skos:prefLabel/altLabel}, \texttt{schema:name}, and \texttt{wdt:P1476}, followed by de-duplication and verbalization.
+
+\medskip
+\noindent
+\textbf{Embedding (tail prediction).}
+This path answers queries of the form $(subject, predicate, \, ?object)$. We pick the first subject candidate that has an embedding vector. Candidate tails are \emph{first} collected from the 1-hop neighborhood $(subject, predicate, ?o)$; if empty, we \emph{fallback} to all tails of that predicate across the graph with downsampling (\texttt{MAX\_TAILS}). We compute a TransE-style target $t = \mathrm{norm}(s + r)$ and score candidates by cosine similarity. For the top hit we attach a short type from \texttt{rdf:type}/\texttt{wdt:P31}; we also estimate the predicate's majority object type as an \emph{expected type} for display consistency.
+
+\noindent
+\textbf{Embedding (head prediction).}
+We additionally implement the reverse direction, answering $(\,?subject, predicate, object)$. Given a tail entity that has an embedding vector, we first collect head candidates \emph{specific to that object}, i.e., $(?s, predicate, object)$, and fallback to all heads of the predicate if needed. We use a TransE target $t = \mathrm{norm}(o - r)$ and cosine scoring to retrieve the top-$k$ heads. As of this submission, we attach per-entity types like in tail prediction; \textit{we do not yet compute an ``expected subject type'' for this direction}.
+
+
+\section{Adopted Methods}
+\begin{itemize}
+  \item \textbf{RDFlib}\footnote{\url{https://rdflib.readthedocs.io/}}:
+  used for parsing the KG and querying triples $(s,p,o)$ in Python with stable APIs and serializers.
+
+  \item \textbf{RapidFuzz}\footnote{\url{https://maxbachmann.github.io/RapidFuzz/}}:
+  fast fuzzy string matching for entity labels to construct top-$k$ candidates robust to typos and variants.
+
+  \item \textbf{FastAPI}\footnote{\url{https://fastapi.tiangolo.com/}}:
+  lightweight service wrapper for a clean \texttt{/ask} endpoint and health checks.
+
+  \item \textbf{NumPy}\footnote{\url{https://numpy.org/}}:
+  efficient vector math and L2 normalization for embedding scoring.
+
+  \item \textbf{Translation-based scoring}~\cite{bordes2013translating}:
+  we adopt $s + r \approx o$ and $o - r \approx s$ in a TransE-style setup, using cosine similarity.
+\end{itemize}
+
+\section{Examples}
+\begin{itemize}
+  \item \textbf{Factual.} Given ``\textit{Please answer this question with a factual approach: Who is the director of ‘Good Will Hunting’? }'' the parser extracts the title and relation trigger. The linker returns the film entity; the mapper maps to the ``director'' predicate. The factual executor retrieves the objects and resolves labels, yielding \textit{Gus Van Sant}, which matches the KG.
+
+  \item \textbf{Embedding (tail).} Given ``\textit{What is the genre of `Shoplifters'?}'' we select the film as subject and collect 1-hop tails for the ``genre'' predicate as candidates. After TransE-style scoring, the top hit is \textit{drama film} with type \textit{film genre} (e.g., Q201658).
+  
+\\
+\end{itemize}
+
+\section{Additional Features}
+\begin{itemize}
+  \item \textbf{Intent routing.} We strictly obey the question instruction (factual / embedding / both), ensuring only the requested route runs and preventing unintended mixing.
+  \item \textbf{Direction-aware candidates for embeddings.} For tail prediction we first gather 1-hop tails \((s,p,?o)\) via graph lookup and only then fall back to global predicate tails; for head prediction we symmetrically use \((?s,p,o)\). This subject-/object-first policy keeps candidates semantically tight.
+  \item \textbf{Efficient retrieval.} We downsample large global pools with \texttt{MAX\_TAILS} and compute Top-$k$ using vectorized \texttt{argpartition}, yielding low latency even on bigger KGs.
+  \item \textbf{Readable labels and types.} We resolve labels from multiple RDF properties (RDFS/SKOS/Schema.org/Wikidata title) and extract types from \texttt{rdf:type}/\texttt{wdt:P31}. For tail prediction, we also estimate a predicate-level \emph{expected object type} to satisfy the task’s “return the entity type” requirement.
+  \item \textbf{Clean verbalization.} Answers are de-duplicated and rendered as concise sentences (``A and B and C''), avoiding repeated or list-like artifacts.
+  \item \textbf{Caching and observability.} We maintain small persistent caches (label index, predicate tails/heads, majority types) and expose a \texttt{/health} endpoint with structured logging for monitoring.
+  \item \textbf{Fail-safe behavior.} All computations are offline and deterministic (no external I/O). If a relation vector, subject/tail vector, or candidate pool is missing, the executor returns no embedding answer rather than a speculative guess—favoring precision over noise.
+\end{itemize}
+
+\section{Conclusions}
+Our agent reliably answers KG questions via two complementary routes and obeys the task's instruction about which route to use. For embeddings, we support both tail and head prediction. Next steps include multimedia, recommendation question types. \\
+\textbf{Contributions.} H.~Zheng implemented the service skeleton, entity linker and NLQ parsing; Z.~Hao implemented the intent routing and report. Both authors co-designed the relation mapper, factual executor, embedding executor and debugging.
+
+\bibliographystyle{abbrv}
+\bibliography{references}
+
+\end{document}
