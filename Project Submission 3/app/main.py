@@ -41,7 +41,7 @@ class Chatbot:
                 self.config.relation_embeddings,
                 self.config.relation_index
             )
-            self.entity_linker = EntityLinker(self.config.label_index)
+            self.entity_linker = EntityLinker()
             self.relation_mapper = RelationMapper()
             self.composer = Composer()
 

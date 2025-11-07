@@ -6,7 +6,7 @@ from agent.embedding_executor import EmbeddingExecutor
 from agent.composer import Composer
 from agent.entity_linker import EntityLinker
 from agent.session_manager import Session
-from agent.constants import PREDICATE_MAP
+from agent.constants import PREDICATE_MAP, PREFIXES 
 
 logger = logging.getLogger(__name__)
 
@@ -65,8 +65,6 @@ class RecommendationEngine:
         logger.info(f"Generated {len(all_candidates)} raw candidates.")
 
         # --- 2. Filtering ---
-        # This secondary filter is for candidates from sources
-        # that couldn't be pre-filtered (like embeddings).
         logger.debug("Filtering candidates based on constraints and negations.")
         filtered_candidates = self.filter_candidates(all_candidates, constraints, negations)
         logger.info(f"Filtered down to {len(filtered_candidates)} candidates.")
@@ -105,13 +103,19 @@ class RecommendationEngine:
                 main_dict[movie_id] = {'score': 0.0, 'reasons': set(), 'rating': 0.0}
             
             score_weight = 1.0
+            
+            # --- THIS IS THE FIX ---
+            # Your embeddings are bad.
+            # Give them a very low score so SPARQL results
+            # always win.
             if source_name == 'embed_seed':
-                score_weight = 0.5 
+                score_weight = 0.01 
+            # --- END FIX ---
             elif source_name == 'graph_pref':
                 score_weight = 2.0 # Explicit preferences are important
             
             main_dict[movie_id]['score'] += info.get('score', 0.5) * score_weight
-            main_dict[movie_id]['reasons'].add(info.get('reason', 'is a potential match'))
+            main_dict[movie_id]['reasons'].update(info.get('reasons', {'is a potential match'}))
             main_dict[movie_id]['rating'] = max(main_dict[movie_id]['rating'], info.get('rating', 0.0))
 
     def get_graph_candidates_from_seeds(self, 
@@ -121,27 +125,28 @@ class RecommendationEngine:
                                         negations: Dict) -> Dict[str, Dict]:
         """
         Finds candidates that share properties with seed movies.
-        (Eval 3 Fix - Rule 2.4 Explanations)
+        This version loops through properties, which is robust.
         """
         candidates = {}
-        seed_uris = [f"wd:{seed}" for seed in seed_movies]
+        seed_uris = [f"<{seed}>" for seed in seed_movies]
         
         properties_to_share = [
             (PREDICATE_MAP['genre'], 1.0, "shares the genre"),
             (PREDICATE_MAP['director'], 0.8, "has the same director"),
             (PREDICATE_MAP['actor'], 0.5, "shares an actor"),
             (PREDICATE_MAP['part of series'], 0.9, "is in the same series as"), # For slasher
-            (PREDICATE_MAP['based on'], 0.7, "is based on similar work as"), # For Disney/Shakespeare
+            (PREDICATE_MAP['based on'], 0.7, "is based on similar work as"), # For Disney
         ]
         
         for prop_pid, weight, reason_prefix in properties_to_share:
+            # Call the SIMPLE query function
             query = self.composer.get_recommendation_by_shared_property_query(
                 seed_uris, prop_pid, constraints, negations
             )
             try:
                 results = self.graph_executor.execute_query(query)
                 for res in results:
-                    movie_id = res['movie']['value'].split('/')[-1]
+                    movie_id = res['movie']['value'] # Use full IRI
                     if movie_id in exclude_list:
                         continue
                     
@@ -169,12 +174,14 @@ class RecommendationEngine:
         try:
             all_neighbors = []
             for seed_id in seed_movies:
+                # ID is already a full IRI
                 neighbors = self.embedding_executor.get_nearest_neighbors(
                     entity_id=seed_id, k=20, embedding_type='entity'
                 )
-                all_neighbors.extend(neighbors) # neighbors are (id, score)
+                all_neighbors.extend(neighbors) # neighbors are (IRI, score)
                 
             for movie_id, score in all_neighbors:
+                # movie_id is a full IRI
                 if movie_id in exclude_list:
                     continue
                 if movie_id not in candidates:
@@ -201,7 +208,7 @@ class RecommendationEngine:
         for pref_type, value_id in preferences.items():
             if pref_type in PREDICATE_MAP:
                 pid = PREDICATE_MAP[pref_type]
-                mapped_prefs[pid] = f"wd:{value_id}"
+                mapped_prefs[pid] = f"<{value_id}>" # value_id is already a full IRI
         
         if not mapped_prefs:
             return {}
@@ -212,7 +219,7 @@ class RecommendationEngine:
         try:
             results = self.graph_executor.execute_query(query)
             for res in results:
-                movie_id = res['movie']['value'].split('/')[-1]
+                movie_id = res['movie']['value'] # Use full IRI
                 if movie_id in exclude_list:
                     continue
                 
@@ -235,16 +242,66 @@ class RecommendationEngine:
                           constraints: Dict[str, Any], 
                           negations: Dict[str, Any]) -> Dict[str, Dict]:
         """
-        Filters candidates (from embeddings) that couldn't be pre-filtered.
-        This is a placeholder as full filtering requires N+1 queries.
-        We rely on the SPARQL queries to do the heavy lifting.
+        Filters candidates (especially from embeddings) to ensure they are
+        movies and match all session constraints.
+        This version re-uses the composer's filter-building logic.
         """
-        logger.warning("Secondary filtering is a placeholder. Assuming SPARQL filters caught most constraints.")
-        # In a full system, you'd iterate `candidates` and run a
-        # SPARQL ASK query for each to check constraints.
-        # This is too slow for the eval, so we rely on SPARQL pre-filtering.
+        if not candidates:
+            return {}
+
+        logger.info(f"Running secondary filter on {len(candidates)} candidates.")
+        
+        # 1. Build a VALUES block of all candidate IRIs
+        candidate_iris = [f"<{c_id}>" for c_id in candidates.keys()]
+        values_block = f"VALUES ?movie {{ {' '.join(candidate_iris)} }}"
+        
+        # 2. Reuse the composer's logic to build filter blocks
+        filter_triples, filter_clauses = self.composer._build_filter_block(
+            constraints, negations, "?movie"
+        )
+
+        # 3. Build the master filter query
+        query = f"""
+            {PREFIXES}
             
-        return candidates
+            SELECT ?movie
+            WHERE {{
+                {values_block}
+                
+                # Rule 1: Must be a movie
+                ?movie wdt:P31 wd:Q11424 .
+                
+                # Rule 2: Apply all filter logic
+                {filter_triples}
+                {filter_clauses}
+            }}
+            GROUP BY ?movie
+        """
+        
+        # 4. Execute query and build a set of valid movie IDs
+        valid_movie_ids = set()
+        try:
+            results = self.graph_executor.execute_query(query)
+            for res in results:
+                
+                # --- THIS IS THE FIX for the TypeError ---
+                # res is a dict like {'movie': URIRef('http://...')}
+                # We must convert the URIRef object to a string.
+                valid_movie_ids.add(str(res['movie']))
+                # --- END FIX ---
+                
+        except Exception as e:
+            logger.error(f"Error during secondary filtering query: {e}. Failing open.", exc_info=True)
+            return candidates # Fail open
+
+        # 5. Create the new filtered candidate dictionary
+        filtered_candidates = {
+            mid: info for mid, info in candidates.items() 
+            if mid in valid_movie_ids
+        }
+        
+        logger.info(f"Secondary filter passed {len(filtered_candidates)} candidates.")
+        return filtered_candidates
 
     def rank_candidates(self, candidates: Dict[str, Dict], session: Session) -> List[tuple]:
         """
@@ -300,6 +357,10 @@ class RecommendationEngine:
                     candidate_pool[mid] = (score, reason, all_embeddings[i])
 
             # Normalize scores to [0, 1]
+            if not candidate_pool:
+                 logger.warning("MMR: Candidate pool is empty after embedding check.")
+                 return ranked_list[:k]
+                 
             max_score = max(s for s, r, e in candidate_pool.values())
             if max_score > 0:
                 for mid in candidate_pool:
@@ -311,7 +372,8 @@ class RecommendationEngine:
             selected_ids = set()
             
             # Add the top-ranked item first
-            top_id, (top_score, top_reason, top_embed) = list(candidate_pool.items())[0]
+            top_id = list(candidate_pool.keys())[0]
+            top_score, top_reason, top_embed = candidate_pool[top_id]
             selected.append((top_id, top_score, top_reason))
             selected_ids.add(top_id)
             del candidate_pool[top_id]
@@ -320,16 +382,20 @@ class RecommendationEngine:
                 best_item_id = None
                 best_mmr_score = -np.inf
                 
-                selected_embeds = [candidate_pool[mid][2] for mid in selected_ids if mid in candidate_pool]
+                selected_embeds = [candidate_pool[mid][2] for mid in selected_ids if mid in candidate_pool and candidate_pool[mid][2] is not None]
                 
                 for cand_id, (score, reason, embed) in candidate_pool.items():
+                    if embed is None:
+                        continue
+                        
                     relevance = score
                     
                     # Calculate max similarity to already selected items
                     max_sim = 0.0
-                    for sel_embed in selected_embeds:
-                        sim = self.embedding_executor.cosine_similarity(embed, sel_embed)
-                        max_sim = max(max_sim, sim)
+                    if selected_embeds:
+                        for sel_embed in selected_embeds:
+                            sim = self.embedding_executor.cosine_similarity(embed, sel_embed)
+                            max_sim = max(max_sim, sim)
                     
                     mmr_score = (lambda_val * relevance) - ((1 - lambda_val) * max_sim)
                     

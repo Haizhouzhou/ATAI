@@ -17,11 +17,11 @@ KG_FILE_PATTERNS: List[str] = [
 ]
 
 # --- THIS IS THE FIX ---
-# The patterns now look for .tsv or .txt files, which is what
-# your original Submission 2 code expected to load with pandas.
+# The patterns now look for .tsv, .txt, or .del files.
+# The .del format seems to be used in other ATAI projects and might be what your dataset uses.
 EMBED_PATTERNS = {
-    "entity_ids": ["entity_ids.tsv", "*entity*ids*.tsv", "entity_ids.txt"],
-    "relation_ids": ["relation_ids.tsv", "*relation*ids*.tsv", "relation_ids.txt"],
+    "entity_ids": ["entity_ids.tsv", "*entity*ids*.tsv", "entity_ids.txt", "entity_ids.del", "*entity*ids*.del"],
+    "relation_ids": ["relation_ids.tsv", "*relation*ids*.tsv", "relation_ids.txt", "relation_ids.del", "*relation*ids*.del"],
     "entity_embeds": ["entity_embeds.npy", "*entity*embed*.npy"],
     "relation_embeds": ["relation_embeds.npy", "*relation*embed*.npy"],
 }

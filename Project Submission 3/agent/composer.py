@@ -16,7 +16,6 @@ class Composer:
     def build_query(self, head: str, relation: str, tail: str, limit: int = 10, type_constraint: str = None) -> str:
         """
         Builds a SPARQL query for a simple triple pattern (head, relation, tail).
-        (Eval 2 Fix - Rule 1.3)
         """
         
         # Determine which part is the variable
@@ -60,13 +59,12 @@ class Composer:
     # --- Start Helper for Recommendation Filters ---
     
     def _build_filter_block(self,
-                             constraints: Dict[str, Tuple[str, Any]] = None,
-                             negations: Dict[str, Any] = None,
-                             movie_var: str = "?movie"
-                             ) -> Tuple[str, str]:
+                            constraints: Dict[str, Tuple[str, Any]] = None,
+                            negations: Dict[str, Any] = None,
+                            movie_var: str = "?movie"
+                            ) -> Tuple[str, str]:
         """
         Helper to build SPARQL FILTER, MINUS, and OPTIONAL blocks for rec queries.
-        (Eval 3 Fix - Rule 2.1)
         """
         triples = []
         filters = []
@@ -76,7 +74,8 @@ class Composer:
             for pref_type, value_id in negations.items():
                 if pref_type in PREDICATE_MAP:
                     pid = PREDICATE_MAP[pref_type]
-                    triples.append(f"MINUS {{ {movie_var} {pid} wd:{value_id} . }}")
+                    # value_id is a full IRI, must be in < >
+                    triples.append(f"MINUS {{ {movie_var} <{pid}> <{value_id}> . }}")
 
         # --- Handle Constraints (FILTER) ---
         if constraints:
@@ -89,8 +88,8 @@ class Composer:
                 triples.append(f"OPTIONAL {{ {movie_var} wdt:P577 ?publicationDate . }}")
                 filters.append(f"FILTER(BOUND(?publicationDate) && (YEAR(?publicationDate) >= {start} && YEAR(?publicationDate) <= {end}))")
             if 'language' in constraints:
-                 # Assumes language is a QID
-                 triples.append(f"{movie_var} wdt:P407 wd:{constraints['language']} .")
+                # Assumes language is a full IRI
+                triples.append(f"{movie_var} wdt:P407 <{constraints['language']}> .")
 
         triples_block = "\n".join(triples)
         filters_block = "\n".join(filters)
@@ -99,6 +98,8 @@ class Composer:
 
     # --- EVAL 3: Recommendation Query Templates ---
 
+    # --- THIS IS THE FIX ---
+    # Reverted to the simple, single-property query. The UNION query was failing.
     def get_recommendation_by_shared_property_query(
         self,
         seed_uris: List[str],
@@ -109,12 +110,15 @@ class Composer:
     ) -> str:
         """
         Finds movies that share a property with seeds, applying hard filters.
-        (Eval 3 Fix - Rule 2.1, 2.5)
         """
         if not seed_uris:
             return ""
             
+        # seed_uris is a list of ['<http://...Q1>', '<http://...Q2>']
         seed_values = " ".join(seed_uris)
+        
+        # This is also correct: "<http://...Q1>, <http://...Q2>"
+        filter_values = ", ".join(seed_uris) 
         
         # Build filter blocks
         filter_triples, filter_clauses = self._build_filter_block(constraints, negations, "?movie")
@@ -125,11 +129,11 @@ class Composer:
             WHERE {{
                 VALUES ?seed {{ {seed_values} }}
                 
-                ?seed {property_pid} ?property .
-                ?movie {property_pid} ?property .
+                ?seed <{property_pid}> ?property .
+                ?movie <{property_pid}> ?property .
                 ?movie wdt:P31 wd:Q11424 .
                 
-                FILTER(?movie NOT IN ( {seed_values} ))
+                FILTER(?movie NOT IN ( {filter_values} ))
                 
                 # --- Apply Hard Filters (Rule 2.1) ---
                 {filter_triples}
@@ -152,6 +156,8 @@ class Composer:
         """
         logger.debug(f"Composed recommendation query (shared property):\n{query}")
         return query
+    # --- END FIX ---
+
 
     def get_recommendation_by_property_query(
         self,
@@ -162,13 +168,13 @@ class Composer:
     ) -> str:
         """
         Finds movies matching specific properties, applying filters.
-        (Eval 3 Fix - Rule 2.1, 2.5)
         """
         triples = ["?movie wdt:P31 wd:Q11424 ."] # Start with 'is a movie'
         
         # Add preference triples
+        # preferences dict is {pid: '<http://...Q1>'}
         for pid, value_uri in preferences.items():
-            triples.append(f"?movie {pid} {value_uri} .")
+            triples.append(f"?movie <{pid}> {value_uri} .")
             
         # Build filter blocks
         filter_triples, filter_clauses = self._build_filter_block(constraints, negations, "?movie")

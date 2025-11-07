@@ -24,12 +24,16 @@ class EntityLinker:
     def __init__(self):
         self.index_path = CACHE_DIR / "label_index.pkl"
         self.label_to_iri: Dict[str, str] = {}
+        self.iri_to_label: Dict[str, str] = {} # <-- FIX 1: ADD THIS
         self._ensure_index()
 
     def _ensure_index(self):
         if self.index_path.exists():
             try:
+                # Load the label_to_iri map from the cache
                 self.label_to_iri = pickle.load(open(self.index_path, "rb"))
+                # <-- FIX 2: CREATE THE REVERSE MAP -->
+                self.iri_to_label = {v: k for k, v in self.label_to_iri.items()}
                 log.info("Loaded label index from cache: %s", self.index_path)
                 return
             except Exception as e:
@@ -38,9 +42,18 @@ class EntityLinker:
         kg = self._load_graph()
         log.info("Building label index from KG (one-time)...")
         label_to_iri: Dict[str, str] = {}
+        iri_to_label: Dict[str, str] = {} # <-- FIX 3: ADD THIS -->
+        
         for s, p, o in kg.triples((None, RDFS.label, None)):
-            label_to_iri[str(o)] = str(s)
+            label_str = str(o)
+            iri_str = str(s)
+            label_to_iri[label_str] = iri_str
+            iri_to_label[iri_str] = label_str # <-- FIX 4: POPULATE IT -->
+
         self.label_to_iri = label_to_iri
+        self.iri_to_label = iri_to_label # <-- FIX 5: SAVE IT -->
+        
+        # Save the label_to_iri map to cache (as before)
         pickle.dump(self.label_to_iri, open(self.index_path, "wb"))
         log.info("Label index built: %d entries", len(self.label_to_iri))
 
@@ -55,6 +68,13 @@ class EntityLinker:
         g = Graph()
         g.parse(kg_file)
         return g
+
+    # <-- FIX 6: ADD THIS ENTIRE FUNCTION -->
+    def get_label(self, iri: str) -> str | None:
+        """
+        Gets the label for a given IRI.
+        """
+        return self.iri_to_label.get(iri)
 
     def link(self, raw_strings: List[str]) -> List[EntityCandidate]:
         if not raw_strings:

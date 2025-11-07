@@ -1,108 +1,78 @@
+# /files/Project Submission 2/speakeasy_bot.py
 import os
+import json
 import logging
-from dotenv import load_dotenv
-from speakeasy.client import Speakeasy
-import requests # Uses requests to talk to the FastAPI server
+import requests
+from speakeasypy import Speakeasy, EventType
 
-# Load environment variables
-load_dotenv()
+logging.basicConfig(level=logging.INFO)
 
-# Setup logging
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
-logger = logging.getLogger(__name__)
+SPEAKEASY_HOST = os.getenv("SPEAKEASY_HOST", "https://speakeasy.ifi.uzh.ch")
+SPEAKEASY_USER = os.getenv("SPEAKEASY_USER", "RedFlickeringCandle")
+SPEAKEASY_PASS = os.getenv("SPEAKEASY_PASS", "Sv9Kx0sH")
 
-class SpeakeasyBot:
-    """
-    SpeakeasyBot class to interact with the Speakeasy platform
-    by making requests to a separate web server (app/main.py).
-    """
-    def __init__(self, bot_token, api_key, server_url, bot_id=None):
-        self.client = Speakeasy(
-            bot_token=bot_token,
-            api_key=api_key,
-            server_url=server_url,
-            bot_id=bot_id
-        )
-        
-        # URL of your FastAPI server
-        self.nlq_server_url = os.getenv("NLQ_SERVER_URL", "http://127.0.0.1:8000")
-        self.timeout = int(os.getenv("REQUEST_TIMEOUT", 10))
-        
-        logger.info(f"Bot initialized. NLQ Server URL: {self.nlq_server_url}")
+BACKEND_ASK_URL = os.getenv("BACKEND_ASK_URL", "http://localhost:8000/ask")
+BACKEND_HEALTH_URL = os.getenv("BACKEND_HEALTH_URL", "http://localhost:8000/health")
 
-        # Register the message handler
-        self.client.register_handler("on_new_message", self.on_new_message)
-        logger.info("Registered 'on_new_message' handler.")
+def render_answer(payload: dict) -> str:
+    """把你 /ask 的 JSON 回答，渲染成 Speakeasy 聊天里的纯文本"""
+    parts = []
 
-    def on_new_message(self, message):
-        """
-        Handles new incoming messages from Speakeasy.
-        """
-        logger.info(f"Received message: {message.content} from user: {message.user_id} in chat: {message.chat_room_id}")
+    fa = payload.get("factual_answer")
+    if fa and isinstance(fa, dict):
+        ans = fa.get("answer", [])
+        if ans:
+            parts.append(f"Factual: {', '.join(map(str, ans))}")
 
-        if message.user_id == self.client.bot_id:
-            logger.info("Ignoring message from self.")
+    ea = payload.get("embedding_answer")
+    if ea and isinstance(ea, dict):
+        ans = ea.get("answer")
+        score = ea.get("score")
+        if ans:
+            if score is not None:
+                parts.append(f"Embedding: {ans} (score={round(float(score), 4)})")
+            else:
+                parts.append(f"Embedding: {ans}")
+
+    note = payload.get("note")
+    if note:
+        parts.append(f"Note: {note}")
+
+    if not parts:
+        return "No results found."
+
+    return "\n".join(parts)
+
+def on_new_message(message: str, room):
+    text = (message or "").strip()
+    print(f"\n[recv][room={getattr(room, 'room_id', None)}]\n{text}\n")
+
+    try:
+        resp = requests.post(BACKEND_ASK_URL, json={"query": text}, timeout=30)
+        if resp.status_code != 200:
+            room.post_messages(f"Backend error: HTTP {resp.status_code}")
             return
 
-        try:
-            # Post the query to the FastAPI server
-            # Note: message.chat_room_id is a good unique session key
-            response = requests.post(
-                f"{self.nlq_server_url}/nlq",
-                json={"query": message.content, "user_id": message.chat_room_id},
-                timeout=self.timeout,
-            )
-            response.raise_for_status() # Raise an exception for bad status codes
-            
-            data = response.json()
-            response_text = data.get("answer", "I received an empty response from my brain.")
+        data = resp.json()
+        out = render_answer(data)
+        room.post_messages(out)
+        print("[sent] response posted.")
+    except Exception as e:
+        logging.exception("Error handling message")
+        room.post_messages("Internal error while contacting backend.")
 
-        except requests.exceptions.Timeout:
-            logger.error(f"Request to NLQ server timed out for query: {message.content}")
-            response_text = "I'm sorry, I'm taking a bit too long to think. Please try again."
-        except requests.exceptions.RequestException as e:
-            logger.error(f"Error connecting to NLQ server: {e}", exc_info=True)
-            response_text = "I'm sorry, I'm having trouble connecting to my brain. Please try again later."
-        except Exception as e:
-            logger.error(f"Error processing message: {e}", exc_info=True)
-            response_text = "I'm sorry, I encountered an internal error."
+def main():
+    try:
+        h = requests.get(BACKEND_HEALTH_URL, timeout=5)
+        logging.info("Backend health: %s", h.text)
+    except Exception as e:
+        logging.warning("Backend health check failed: %s", e)
 
-        try:
-            # Send the response back to the chat room
-            self.client.send_message(
-                chat_room_id=message.chat_room_id,
-                content=response_text
-            )
-            logger.info(f"Sent response to chat {message.chat_room_id}: {response_text}")
-        except Exception as send_e:
-            logger.error(f"Failed to send message to chat {message.chat_room_id}: {send_e}")
-
-    def run(self):
-        """
-        Connects to the Speakeasy server and starts listening for messages.
-        """
-        logger.info("Connecting to Speakeasy...")
-        try:
-            self.client.connect()
-            logger.info("Bot has disconnected.")
-        except Exception as e:
-            logger.error(f"Failed to connect or run bot: {e}", exc_info=True)
-        finally:
-            logger.info("Bot is shutting down.")
+    spx = Speakeasy(host=SPEAKEASY_HOST, username=SPEAKEASY_USER, password=SPEAKEASY_PASS)
+    spx.login()
+    spx.register_callback(on_new_message, EventType.MESSAGE)
+    print("Speakeasy bot is now running. Press Ctrl+C to stop.")
+    spx.start_listening()
 
 if __name__ == "__main__":
-    BOT_TOKEN = os.getenv("SPEAKEASY_BOT_TOKEN")
-    API_KEY = os.getenv("SPEAKEASY_API_KEY")
-    SERVER_URL = os.getenv("SPEAKEASY_SERVER_URL", "https://api.speakeasy.tools")
-    BOT_ID = os.getenv("SPEAKEASY_BOT_ID") 
-
-    if not BOT_TOKEN or not API_KEY:
-        logger.error("SPEAKEASY_BOT_TOKEN and SPEAKEASY_API_KEY must be set.")
-    else:
-        bot = SpeakeasyBot(
-            bot_token=BOT_TOKEN,
-            api_key=API_KEY,
-            server_url=SERVER_URL,
-            bot_id=BOT_ID
-        )
-        bot.run()
+    main()

@@ -77,7 +77,7 @@ class PreferenceParser:
         quoted_titles = re.findall(r'["\'](.*?)["\']', query)
         
         # Heuristic: Link entities from the whole query
-        linked_entities = self.entity_linker.link_entities(query)
+        linked_entities = self.entity_linker.link([query])
         
         # Add quoted titles
         for title in quoted_titles:
@@ -86,7 +86,7 @@ class PreferenceParser:
         seed_movie_ids = []
         for entity in linked_entities:
             # We trust the linker, which prioritizes movies.
-            seed_movie_ids.append(entity[1]) # entity[1] is the ID
+            seed_movie_ids.append(entity.iri) # entity[1] is the ID
         
         return list(set(seed_movie_ids))
 
