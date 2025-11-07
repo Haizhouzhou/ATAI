@@ -11,7 +11,6 @@ class RelationMapper:
     def __init__(self):
         # Build a single regex pattern from all keys in PREDICATE_MAP
         # Sort keys by length, descending, to match longest phrases first
-        # This fixes the "nominated for" vs "award" ambiguity
         patterns = sorted(PREDICATE_MAP.keys(), key=len, reverse=True)
         
         self.relation_pattern = re.compile(r'\b(' + '|'.join(re.escape(p) for p in patterns) + r')\b', re.IGNORECASE)

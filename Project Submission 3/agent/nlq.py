@@ -48,19 +48,13 @@ class NLQ:
                 entities = self.entity_linker.link_entities(query)
                 if not entities:
                     logger.warning(f"No entities found in QA query: {query}")
-                    # Entity linking fallback (Rule 1.3) is complex to add
-                    # without modifying EntityLinker, so we rely on the primary linker.
                     return "I found a topic but no specific item to look up. Could you be more precise?"
 
                 # Assume the first linked entity is the subject
                 entity_label, entity_id, _ = entities[0]
-                head = f"wd:{entity_id}"
-                tail = "?answer"
                 var_name = "answer"
-                var_name_friendly = relation.split(':')[-1] # e.g., "P57" -> "P57"
                 
                 # Simple logic to determine if we are looking for head or tail
-                # This could be improved, but works for most WH-questions
                 if query.lower().startswith("who") or \
                    query.lower().startswith("what") or \
                    query.lower().startswith("when"):
@@ -94,7 +88,7 @@ class NLQ:
 
                 # 6. Format Response
                 if not results:
-                    return f"I couldn't find any information about the {var_name_friendly} for {entity_label}."
+                    return f"I couldn't find any information about that for {entity_label}."
                 
                 labels = [res[f"{var_name}Label"]['value'] for res in results if f"{var_name}Label" in res]
                 if not labels:
@@ -106,19 +100,21 @@ class NLQ:
 
                 # De-duplicate results (Rule 1.3)
                 unique_labels = sorted(list(set(labels)))
-                return f"The {var_name_friendly} of {entity_label} is: {', and '.join(unique_labels)}."
+                
+                # Format relation name for response
+                relation_friendly = "info"
+                for key, val in PREDICATE_MAP.items():
+                    if val == relation:
+                        relation_friendly = key
+                        break
+                        
+                return f"The {relation_friendly} of {entity_label} is: {', and '.join(unique_labels)}."
 
             except Exception as e:
                 logger.error(f"Error in NLQ factual approach: {e}", exc_info=True)
                 return "I had trouble processing that question."
 
-        # 7. Embedding Approach (Fallback if no relation is found)
-        logger.info("No relation found, trying embedding approach.")
-        try:
-            # (Your existing Eval 2 embedding logic would go here)
-            # ...
-            return "I'm not sure how to answer that factually, and the embedding approach is not connected in this path."
-        
-        except Exception as e:
-            logger.error(f"Error in NLQ embedding approach: {e}", exc_info=True)
-            return "I'm sorry, I couldn't answer that question."
+        # 7. Embedding Approach (Fallback)
+        # This part of Eval 2 is not the focus for Eval 3
+        logger.warning("No relation found, and not a recommendation. QA fallback.")
+        return "I'm not sure how to answer that question. You can ask me for movie facts (like 'who directed...') or for recommendations (like 'movies similar to...')."

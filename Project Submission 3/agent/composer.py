@@ -16,8 +16,6 @@ class Composer:
     def build_query(self, head: str, relation: str, tail: str, limit: int = 10, type_constraint: str = None) -> str:
         """
         Builds a SPARQL query for a simple triple pattern (head, relation, tail).
-        One of head, relation, or tail must be a variable (e.g., '?director').
-        
         (Eval 2 Fix - Rule 1.3)
         """
         
@@ -84,12 +82,12 @@ class Composer:
         if constraints:
             if 'year' in constraints:
                 op, year = constraints['year']
-                triples.append(f"{movie_var} wdt:P577 ?publicationDate .")
-                filters.append(f"FILTER(YEAR(?publicationDate) {op} {year})")
+                triples.append(f"OPTIONAL {{ {movie_var} wdt:P577 ?publicationDate . }}")
+                filters.append(f"FILTER(BOUND(?publicationDate) && (YEAR(?publicationDate) {op} {year}))")
             if 'year_range' in constraints:
                 start, end = constraints['year_range']
-                triples.append(f"{movie_var} wdt:P577 ?publicationDate .")
-                filters.append(f"FILTER(YEAR(?publicationDate) >= {start} && YEAR(?publicationDate) <= {end})")
+                triples.append(f"OPTIONAL {{ {movie_var} wdt:P577 ?publicationDate . }}")
+                filters.append(f"FILTER(BOUND(?publicationDate) && (YEAR(?publicationDate) >= {start} && YEAR(?publicationDate) <= {end}))")
             if 'language' in constraints:
                  # Assumes language is a QID
                  triples.append(f"{movie_var} wdt:P407 wd:{constraints['language']} .")
@@ -135,16 +133,18 @@ class Composer:
                 
                 # --- Apply Hard Filters (Rule 2.1) ---
                 {filter_triples}
-                {filter_clauses}
-                # --- End Filters ---
                 
                 ?movie rdfs:label ?movieLabel .
                 FILTER(LANG(?movieLabel) = "en")
-                ?property rdfs:label ?propLabel .
-                FILTER(LANG(?propLabel) = "en")
+                OPTIONAL {{
+                    ?property rdfs:label ?propLabel .
+                    FILTER(LANG(?propLabel) = "en")
+                }}
                 
                 # --- Get Rating for Scoring (Rule 2.5) ---
                 OPTIONAL {{ ?movie ddis:rating ?rating . }}
+                
+                {filter_clauses}
             }}
             GROUP BY ?movie ?movieLabel ?propLabel ?rating
             ORDER BY DESC(?sharedCount)
@@ -185,11 +185,11 @@ class Composer:
                 ?movie rdfs:label ?movieLabel .
                 FILTER(LANG(?movieLabel) = "en")
                 
-                # --- Apply Hard Filters (Rule 2.1) ---
-                {filter_clauses}
-                
                 # --- Get Rating for Scoring (Rule 2.5) ---
                 OPTIONAL {{ ?movie ddis:rating ?rating . }}
+                
+                # --- Apply Hard Filters (Rule 2.1) ---
+                {filter_clauses}
             }}
             LIMIT {limit}
         """

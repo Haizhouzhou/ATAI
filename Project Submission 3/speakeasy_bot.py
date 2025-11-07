@@ -1,10 +1,8 @@
 import os
 import logging
-import time
 from dotenv import load_dotenv
 from speakeasy.client import Speakeasy
-from app.main import Chatbot  # Main logic is now in Chatbot
-from agent.session_manager import SessionManager # Import session manager
+import requests # Uses requests to talk to the FastAPI server
 
 # Load environment variables
 load_dotenv()
@@ -15,7 +13,8 @@ logger = logging.getLogger(__name__)
 
 class SpeakeasyBot:
     """
-    SpeakeasyBot class to interact with the Speakeasy platform.
+    SpeakeasyBot class to interact with the Speakeasy platform
+    by making requests to a separate web server (app/main.py).
     """
     def __init__(self, bot_token, api_key, server_url, bot_id=None):
         self.client = Speakeasy(
@@ -24,17 +23,12 @@ class SpeakeasyBot:
             server_url=server_url,
             bot_id=bot_id
         )
-        # Initialize the main Chatbot logic
-        try:
-            self.chatbot = Chatbot()
-            logger.info("Chatbot logic initialized successfully.")
-        except Exception as e:
-            logger.error(f"Failed to initialize Chatbot: {e}", exc_info=True)
-            raise
         
-        # Initialize a session manager to hold states for different users
-        self.session_manager = SessionManager()
-        logger.info("Session manager initialized.")
+        # URL of your FastAPI server
+        self.nlq_server_url = os.getenv("NLQ_SERVER_URL", "http://127.0.0.1:8000")
+        self.timeout = int(os.getenv("REQUEST_TIMEOUT", 10))
+        
+        logger.info(f"Bot initialized. NLQ Server URL: {self.nlq_server_url}")
 
         # Register the message handler
         self.client.register_handler("on_new_message", self.on_new_message)
@@ -46,42 +40,42 @@ class SpeakeasyBot:
         """
         logger.info(f"Received message: {message.content} from user: {message.user_id} in chat: {message.chat_room_id}")
 
-        # Ignore messages from the bot itself
         if message.user_id == self.client.bot_id:
             logger.info("Ignoring message from self.")
             return
 
         try:
-            # Get the session for the current user
-            # We use chat_room_id as a proxy for a continuous conversation session
-            user_session = self.session_manager.get_session(message.chat_room_id)
+            # Post the query to the FastAPI server
+            # Note: message.chat_room_id is a good unique session key
+            response = requests.post(
+                f"{self.nlq_server_url}/nlq",
+                json={"query": message.content, "user_id": message.chat_room_id},
+                timeout=self.timeout,
+            )
+            response.raise_for_status() # Raise an exception for bad status codes
+            
+            data = response.json()
+            response_text = data.get("answer", "I received an empty response from my brain.")
 
-            # Process the natural language query using the Chatbot class
-            # The Chatbot will now handle intent routing (QA vs. Rec)
-            # and use the provided session for context
-            response_text = self.chatbot.process_nl_query(message.content, user_session)
+        except requests.exceptions.Timeout:
+            logger.error(f"Request to NLQ server timed out for query: {message.content}")
+            response_text = "I'm sorry, I'm taking a bit too long to think. Please try again."
+        except requests.exceptions.RequestException as e:
+            logger.error(f"Error connecting to NLQ server: {e}", exc_info=True)
+            response_text = "I'm sorry, I'm having trouble connecting to my brain. Please try again later."
+        except Exception as e:
+            logger.error(f"Error processing message: {e}", exc_info=True)
+            response_text = "I'm sorry, I encountered an internal error."
 
-            if not response_text:
-                response_text = "I'm sorry, I couldn't process that request."
-                logger.warning(f"Chatbot returned an empty response for query: {message.content}")
-
+        try:
             # Send the response back to the chat room
             self.client.send_message(
                 chat_room_id=message.chat_room_id,
                 content=response_text
             )
             logger.info(f"Sent response to chat {message.chat_room_id}: {response_text}")
-
-        except Exception as e:
-            logger.error(f"Error processing message: {e}", exc_info=True)
-            try:
-                # Send an error message to the user
-                self.client.send_message(
-                    chat_room_id=message.chat_room_id,
-                    content="I'm sorry, I encountered an internal error. Please try again."
-                )
-            except Exception as send_e:
-                logger.error(f"Failed to send error message to chat {message.chat_room_id}: {send_e}")
+        except Exception as send_e:
+            logger.error(f"Failed to send message to chat {message.chat_room_id}: {send_e}")
 
     def run(self):
         """
@@ -89,7 +83,7 @@ class SpeakeasyBot:
         """
         logger.info("Connecting to Speakeasy...")
         try:
-            self.client.connect()  # This is a blocking call that runs the bot
+            self.client.connect()
             logger.info("Bot has disconnected.")
         except Exception as e:
             logger.error(f"Failed to connect or run bot: {e}", exc_info=True)
@@ -97,16 +91,14 @@ class SpeakeasyBot:
             logger.info("Bot is shutting down.")
 
 if __name__ == "__main__":
-    # Load credentials from environment variables
     BOT_TOKEN = os.getenv("SPEAKEASY_BOT_TOKEN")
     API_KEY = os.getenv("SPEAKEASY_API_KEY")
     SERVER_URL = os.getenv("SPEAKEASY_SERVER_URL", "https://api.speakeasy.tools")
-    BOT_ID = os.getenv("SPEAKEASY_BOT_ID") # Optional, but good for self-message check
+    BOT_ID = os.getenv("SPEAKEASY_BOT_ID") 
 
     if not BOT_TOKEN or not API_KEY:
         logger.error("SPEAKEASY_BOT_TOKEN and SPEAKEASY_API_KEY must be set.")
     else:
-        # Create and run the bot
         bot = SpeakeasyBot(
             bot_token=BOT_TOKEN,
             api_key=API_KEY,

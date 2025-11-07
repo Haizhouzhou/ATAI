@@ -47,8 +47,7 @@ class Session:
             self.negations.update(new_negations)
             logger.info(f"Session {self.user_id}: Updated negations {new_negations}")
 
-        # If it's a follow-up ("more like that") without new seeds,
-        # we can use the last recommended movies as new seeds.
+        # If it's a follow-up ("more like that")
         if parsed_intent.get('is_follow_up') and not new_seeds and self.recommended_movies:
             logger.info(f"Session {self.user_id}: Using last recommendations as new seeds.")
             self.seed_movies.update(self.recommended_movies)

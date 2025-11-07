@@ -74,11 +74,9 @@ class PreferenceParser:
         """
         Extracts movie titles from the query and links them to entity IDs.
         """
-        # Find all potential movie titles.
         quoted_titles = re.findall(r'["\'](.*?)["\']', query)
         
         # Heuristic: Link entities from the whole query
-        # This is fine because RelationMapper already failed to find a relation
         linked_entities = self.entity_linker.link_entities(query)
         
         # Add quoted titles
@@ -87,8 +85,7 @@ class PreferenceParser:
         
         seed_movie_ids = []
         for entity in linked_entities:
-            # We need to confirm it's a movie (Q11424)
-            # For now, we trust the linker, which prioritizes movies.
+            # We trust the linker, which prioritizes movies.
             seed_movie_ids.append(entity[1]) # entity[1] is the ID
         
         return list(set(seed_movie_ids))
@@ -103,20 +100,17 @@ class PreferenceParser:
         
         query_lower = query.lower()
         is_negated = any(neg in query_lower for neg in NEGATION_KEYWORDS)
-        target_dict = negations if is_negated else preferences
-
+        
         # --- 1. Map keyword-based preferences (genre, actor, director) ---
         for pref_type, keywords in PREFERENCE_KEYWORDS.items():
+            target_dict = negations if is_negated and pref_type in ['genre', 'actor', 'director'] else preferences
+            
             for keyword in keywords:
                 if keyword in query_lower:
-                    # Extract the value associated with the keyword
                     match = re.search(f'{keyword}(\s+(?:by|is|as|a|an|the))?(\s+[\w\s]+)', query_lower)
                     if match and match.group(2):
-                        value = match.group(2).strip()
-                        # Clean up value
-                        value = value.split(" from ")[0].split(" in ")[0].split(" with ")[0]
+                        value = match.group(2).strip().split(" from ")[0].split(" in ")[0].split(" with ")[0]
                         
-                        # Link the value
                         if pref_type in ['actor', 'director']:
                             linked_val = self.entity_linker.link_entities(value)
                             if linked_val:
@@ -137,7 +131,7 @@ class PreferenceParser:
             
             if 's' in match.group(0): # '1990s'
                 year = int(year_str)
-                constraints['year_range'] = (year, year + 9)
+                (negations if is_negated else constraints)['year_range'] = (year, year + 9)
                 continue
             
             year = int(year_str)
@@ -147,15 +141,14 @@ class PreferenceParser:
             elif prefix == 'before':
                 op = '<'
             elif prefix == 'in' or prefix == 'from':
-                op = '=' # e.g. "from 1990" (could mean >) but "=" is safer
+                op = '='
                 
-            constraints['year'] = (op, year)
+            (negations if is_negated else constraints)['year'] = (op, year)
             
         # --- 3. Extract language constraint (Rule 2.3) ---
         lang_match = self.lang_regex.search(query)
         if lang_match:
             lang_name = lang_match.group(2).capitalize()
-            # Link language name to QID
             lang_entities = self.entity_linker.link_entities(f"{lang_name} language")
             if lang_entities:
                 lang_id = lang_entities[0][1]

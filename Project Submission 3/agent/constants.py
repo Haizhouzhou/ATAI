@@ -55,11 +55,11 @@ PREDICATE_MAP = {
     "rating": "ddis:rating",
     "user rating": "ddis:rating",
     
-    # Properties for Recommendation Preferences
+    # Properties for Recommendation Preferences & Explanations
     "language": "wdt:P407",
     "year": "wdt:P577", # Simplified mapping
-    "part of series": "wdt:P179",
-    "based on": "wdt:P4969", # "derivative work"
+    "part of series": "wdt:P179", # For "Halloween", "Friday the 13th"
+    "based on": "wdt:P4969", # "derivative work", for "Hamlet", "Lion King"
 }
 
 # --- INTENT PARSING (EVAL 3) ---
@@ -85,7 +85,7 @@ NEGATION_KEYWORDS = [
     "not", "don't", "without", "except", "avoid", "no", "less"
 ]
 
-# Keywords to map to preference types (Rule 2.3 fix: "in" removed from language)
+# Keywords to map to preference types
 PREFERENCE_KEYWORDS = {
     "genre": ["genre", "type of movie", "about", "is a"],
     "actor": ["actor", "starring", "with", "features"],
@@ -93,5 +93,5 @@ PREFERENCE_KEYWORDS = {
     "language": ["language", "speak"], # "in [language]" is handled by regex
 }
 
-# Supported languages for specific regex matching
+# Supported languages for specific regex matching (Rule 2.3 fix)
 SUPPORTED_LANGUAGES_REGEX = r'\b(French|German|Spanish|English|Italian|Japanese|Korean)\b'

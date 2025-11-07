@@ -6,7 +6,7 @@ import logging
 
 logger = logging.getLogger(__name__)
 
-# --- Functions from your Submission 2 ---
+# --- Functions from your Submission 2 (REQUIRED) ---
 
 _normalize_quotes_re = re.compile(r"[\u2018\u2019\u201A\u201B\u2032\u2035\u0060]")
 _normalize_dquotes_re = re.compile(r"[\u201C\u201D\u201E\u201F\u2033\u2036]")
@@ -46,7 +46,7 @@ def pick_first_file(root: Path, patterns: Iterable[str]) -> Optional[Path]:
             continue
     return None
 
-# --- Functions from Submission 3 (for config.py) ---
+# --- Functions from Submission 3 (REQUIRED) ---
 
 def find_file_in_dirs(directories: List[Path], patterns: List[str]) -> Optional[Path]:
     """
