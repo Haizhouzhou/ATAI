@@ -90,10 +90,17 @@ class NLQ:
                 if not results:
                     return f"I couldn't find any information about that for {entity_label}."
                 
-                labels = [res[f"{var_name}Label"]['value'] for res in results if f"{var_name}Label" in res]
+                # --- THIS IS THE FIX ---
+                # res[var_name] is an rdflib.Term object. Use .value to get the Python value.
+                labels = [res[f"{var_name}Label"].value for res in results if f"{var_name}Label" in res]
                 if not labels:
                     # Fallback for values without labels (like dates)
-                    labels = [res[var_name]['value'] for res in results if var_name in res]
+                    # Use .value for Literals, str() for URIs
+                    labels = [
+                        term.value if hasattr(term, 'value') else str(term)
+                        for term in (res.get(var_name) for res in results) if term
+                    ]
+                # --- END FIX ---
                 
                 if not labels:
                     return f"I found some entries for {entity_label} but could not get their names."

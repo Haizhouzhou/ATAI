@@ -104,13 +104,10 @@ class RecommendationEngine:
             
             score_weight = 1.0
             
-            # --- THIS IS THE FIX ---
-            # Your embeddings are bad.
-            # Give them a very low score so SPARQL results
-            # always win.
+            # Give embeddings a very low score so SPARQL results
+            # (which are now working) always win.
             if source_name == 'embed_seed':
                 score_weight = 0.01 
-            # --- END FIX ---
             elif source_name == 'graph_pref':
                 score_weight = 2.0 # Explicit preferences are important
             
@@ -125,7 +122,6 @@ class RecommendationEngine:
                                         negations: Dict) -> Dict[str, Dict]:
         """
         Finds candidates that share properties with seed movies.
-        This version loops through properties, which is robust.
         """
         candidates = {}
         seed_uris = [f"<{seed}>" for seed in seed_movies]
@@ -134,25 +130,32 @@ class RecommendationEngine:
             (PREDICATE_MAP['genre'], 1.0, "shares the genre"),
             (PREDICATE_MAP['director'], 0.8, "has the same director"),
             (PREDICATE_MAP['actor'], 0.5, "shares an actor"),
-            (PREDICATE_MAP['part of series'], 0.9, "is in the same series as"), # For slasher
-            (PREDICATE_MAP['based on'], 0.7, "is based on similar work as"), # For Disney
+            (PREDICATE_MAP['part of series'], 0.9, "is in the same series as"),
+            (PREDICATE_MAP['based on'], 0.7, "is based on similar work as"),
         ]
         
         for prop_pid, weight, reason_prefix in properties_to_share:
-            # Call the SIMPLE query function
             query = self.composer.get_recommendation_by_shared_property_query(
                 seed_uris, prop_pid, constraints, negations
             )
             try:
                 results = self.graph_executor.execute_query(query)
                 for res in results:
-                    movie_id = res['movie']['value'] # Use full IRI
+                    # --- THIS IS THE FIX ---
+                    # res['movie'] is an rdflib.URIRef object. Convert to string.
+                    # res['propLabel'] is an rdflib.Literal. Use .value.
+                    
+                    movie_id = str(res['movie']) # Convert URIRef to string
                     if movie_id in exclude_list:
                         continue
                     
-                    shared_val_label = res.get('propLabel', {}).get('value', 'a shared property')
+                    prop_label_term = res.get('propLabel')
+                    shared_val_label = prop_label_term.value if prop_label_term else 'a shared property'
                     reason = f"{reason_prefix} '{shared_val_label}'"
-                    rating = float(res.get('rating', {}).get('value', 0.0))
+                    
+                    rating_term = res.get('rating')
+                    rating = float(rating_term.value) if rating_term else 0.0
+                    # --- END FIX ---
                     
                     if movie_id not in candidates:
                         candidates[movie_id] = {'score': 0.0, 'reasons': set(), 'rating': 0.0}
@@ -162,8 +165,9 @@ class RecommendationEngine:
                     candidates[movie_id]['rating'] = max(candidates[movie_id]['rating'], rating)
                     
             except Exception as e:
-                logger.error(f"Error querying for shared property {prop_pid}: {e}")
-                
+                logger.error(f"Error querying for shared property {prop_pid}: {e}", exc_info=True)
+        
+        logger.debug(f"Graph candidates from seeds count: {len(candidates)}") # Added debug log
         return candidates
 
     def get_embedding_candidates_from_seeds(self, seed_movies: Set[str], exclude_list: Set[str]) -> Dict[str, Dict]:
@@ -174,14 +178,12 @@ class RecommendationEngine:
         try:
             all_neighbors = []
             for seed_id in seed_movies:
-                # ID is already a full IRI
                 neighbors = self.embedding_executor.get_nearest_neighbors(
                     entity_id=seed_id, k=20, embedding_type='entity'
                 )
-                all_neighbors.extend(neighbors) # neighbors are (IRI, score)
+                all_neighbors.extend(neighbors) 
                 
             for movie_id, score in all_neighbors:
-                # movie_id is a full IRI
                 if movie_id in exclude_list:
                     continue
                 if movie_id not in candidates:
@@ -208,7 +210,7 @@ class RecommendationEngine:
         for pref_type, value_id in preferences.items():
             if pref_type in PREDICATE_MAP:
                 pid = PREDICATE_MAP[pref_type]
-                mapped_prefs[pid] = f"<{value_id}>" # value_id is already a full IRI
+                mapped_prefs[pid] = f"<{value_id}>" 
         
         if not mapped_prefs:
             return {}
@@ -219,22 +221,26 @@ class RecommendationEngine:
         try:
             results = self.graph_executor.execute_query(query)
             for res in results:
-                movie_id = res['movie']['value'] # Use full IRI
+                # --- THIS IS THE FIX ---
+                movie_id = str(res['movie']) # Convert URIRef to string
                 if movie_id in exclude_list:
                     continue
                 
-                rating = float(res.get('rating', {}).get('value', 0.0))
+                rating_term = res.get('rating')
+                rating = float(rating_term.value) if rating_term else 0.0
+                # --- END FIX ---
                 
                 if movie_id not in candidates:
                     candidates[movie_id] = {'score': 0.0, 'reasons': set(), 'rating': 0.0}
                 
-                candidates[movie_id]['score'] += 2.0 # High score for explicit match
+                candidates[movie_id]['score'] += 2.0 
                 candidates[movie_id]['reasons'].add("it matches your preferences")
                 candidates[movie_id]['rating'] = max(candidates[movie_id]['rating'], rating)
                 
         except Exception as e:
             logger.error(f"Error querying for preferences: {e}")
 
+        logger.debug(f"Graph candidates from prefs count: {len(candidates)}") # Added debug log
         return candidates
 
     def filter_candidates(self, 
@@ -244,23 +250,19 @@ class RecommendationEngine:
         """
         Filters candidates (especially from embeddings) to ensure they are
         movies and match all session constraints.
-        This version re-uses the composer's filter-building logic.
         """
         if not candidates:
             return {}
 
         logger.info(f"Running secondary filter on {len(candidates)} candidates.")
         
-        # 1. Build a VALUES block of all candidate IRIs
         candidate_iris = [f"<{c_id}>" for c_id in candidates.keys()]
         values_block = f"VALUES ?movie {{ {' '.join(candidate_iris)} }}"
         
-        # 2. Reuse the composer's logic to build filter blocks
         filter_triples, filter_clauses = self.composer._build_filter_block(
             constraints, negations, "?movie"
         )
 
-        # 3. Build the master filter query
         query = f"""
             {PREFIXES}
             
@@ -268,33 +270,24 @@ class RecommendationEngine:
             WHERE {{
                 {values_block}
                 
-                # Rule 1: Must be a movie
                 ?movie wdt:P31 wd:Q11424 .
                 
-                # Rule 2: Apply all filter logic
                 {filter_triples}
                 {filter_clauses}
             }}
             GROUP BY ?movie
         """
         
-        # 4. Execute query and build a set of valid movie IDs
         valid_movie_ids = set()
         try:
             results = self.graph_executor.execute_query(query)
             for res in results:
-                
-                # --- THIS IS THE FIX for the TypeError ---
-                # res is a dict like {'movie': URIRef('http://...')}
-                # We must convert the URIRef object to a string.
                 valid_movie_ids.add(str(res['movie']))
-                # --- END FIX ---
                 
         except Exception as e:
             logger.error(f"Error during secondary filtering query: {e}. Failing open.", exc_info=True)
             return candidates # Fail open
 
-        # 5. Create the new filtered candidate dictionary
         filtered_candidates = {
             mid: info for mid, info in candidates.items() 
             if mid in valid_movie_ids
@@ -306,20 +299,15 @@ class RecommendationEngine:
     def rank_candidates(self, candidates: Dict[str, Dict], session: Session) -> List[tuple]:
         """
         Ranks candidates based on merged scores and provides one main reason.
-        (Eval 3 Fix - Rule 2.5 Rating Fallback)
         """
         ranked_list = []
         for movie_id, info in candidates.items():
             final_score = info['score']
             
-            # Add score from rating (Rule 2.5)
-            # Normalize 0-10 rating to 0-1 scale, add as small bonus
             final_score += (info['rating'] / 10.0) * 0.2 
             
-            # Pick a reason.
             best_reason = "it's a good match"
             if info['reasons']:
-                # Prioritize a non-embedding reason if available
                 non_embed_reasons = [r for r in info['reasons'] if "similar" not in r]
                 if non_embed_reasons:
                     best_reason = non_embed_reasons[0]
@@ -337,26 +325,19 @@ class RecommendationEngine:
                             lambda_val: float = 0.7) -> List[tuple]:
         """
         Re-ranks the list using Maximal Marginal Relevance (MMR) for diversity.
-        (Eval 3 Fix - Rule 2.2)
         """
-        if not ranked_list:
-            return []
-        
-        if len(ranked_list) <= k:
-            return ranked_list
+        if not ranked_list or len(ranked_list) <= k:
+            return ranked_list[:k]
 
         try:
-            # Get all candidate IDs and embeddings at once
             all_candidate_ids = [mid for mid, score, reason in ranked_list]
             all_embeddings = self.embedding_executor.get_embeddings(all_candidate_ids)
             
-            # Create a map of ID -> (score, reason, embedding)
             candidate_pool = {}
             for i, (mid, score, reason) in enumerate(ranked_list):
                 if all_embeddings[i] is not None:
                     candidate_pool[mid] = (score, reason, all_embeddings[i])
 
-            # Normalize scores to [0, 1]
             if not candidate_pool:
                  logger.warning("MMR: Candidate pool is empty after embedding check.")
                  return ranked_list[:k]
@@ -367,11 +348,9 @@ class RecommendationEngine:
                     s, r, e = candidate_pool[mid]
                     candidate_pool[mid] = (s / max_score, r, e)
             
-            # Start MMR selection
             selected = []
             selected_ids = set()
             
-            # Add the top-ranked item first
             top_id = list(candidate_pool.keys())[0]
             top_score, top_reason, top_embed = candidate_pool[top_id]
             selected.append((top_id, top_score, top_reason))
@@ -390,7 +369,6 @@ class RecommendationEngine:
                         
                     relevance = score
                     
-                    # Calculate max similarity to already selected items
                     max_sim = 0.0
                     if selected_embeds:
                         for sel_embed in selected_embeds:
@@ -409,7 +387,7 @@ class RecommendationEngine:
                     selected_ids.add(best_item_id)
                     del candidate_pool[best_item_id]
                 else:
-                    break # No more valid candidates
+                    break 
 
             return selected
             

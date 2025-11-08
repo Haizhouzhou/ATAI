@@ -23,32 +23,40 @@ class Session:
         """
         logger.debug(f"Updating session {self.user_id} with {parsed_intent}")
         
-        # Add new seed movies
         new_seeds = parsed_intent.get('seed_movies', [])
-        if new_seeds:
-            self.seed_movies.update(new_seeds)
-            logger.info(f"Session {self.user_id}: Added seeds {new_seeds}")
+        is_follow_up = parsed_intent.get('is_follow_up', False)
 
-        # Update preferences (e.g., genre, actor)
+        if new_seeds:
+            if not is_follow_up:
+                self.seed_movies = set(new_seeds)
+                logger.info(f"Session {self.user_id}: SET new seeds {new_seeds}")
+            else:
+
+                self.seed_movies.update(new_seeds)
+                logger.info(f"Session {self.user_id}: ADDED seeds {new_seeds}")
+        
+
         new_prefs = parsed_intent.get('preferences', {})
         if new_prefs:
-            self.preferences.update(new_prefs)
+
+            self.preferences = new_prefs if not is_follow_up else {**self.preferences, **new_prefs}
             logger.info(f"Session {self.user_id}: Updated prefs {new_prefs}")
 
-        # Update constraints (e.g., year)
+
         new_constraints = parsed_intent.get('constraints', {})
         if new_constraints:
-            self.constraints.update(new_constraints)
+
+            self.constraints = new_constraints if not is_follow_up else {**self.constraints, **new_constraints}
             logger.info(f"Session {self.user_id}: Updated constraints {new_constraints}")
             
-        # Update negations
+
         new_negations = parsed_intent.get('negations', {})
         if new_negations:
-            self.negations.update(new_negations)
+
+            self.negations = new_negations if not is_follow_up else {**self.negations, **new_negations}
             logger.info(f"Session {self.user_id}: Updated negations {new_negations}")
 
-        # If it's a follow-up ("more like that")
-        if parsed_intent.get('is_follow_up') and not new_seeds and self.recommended_movies:
+        if is_follow_up and not new_seeds and self.recommended_movies:
             logger.info(f"Session {self.user_id}: Using last recommendations as new seeds.")
             self.seed_movies.update(self.recommended_movies)
             self.recommended_movies.clear() # Clear old recs so they can be "seeds"
