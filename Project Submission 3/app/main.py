@@ -154,7 +154,8 @@ session_manager: SessionManager = None
 # --- Request Models (from Submission 2) ---
 class NLQRequest(BaseModel):
     query: str
-    user_id: str # user_id will be the session key
+    user_id: str = "anonymous"  # default if frontend doesn't send user_id
+    # user_id: str # user_id will be the session key
 
 class NLQResponse(BaseModel):
     answer: str
@@ -173,8 +174,23 @@ async def startup_event():
         logger.error(f"Startup failed: {e}", exc_info=True)
         # This will still let the server start, but endpoints will fail
         
-# --- Endpoint (Modified) ---
-@app.post("/nlq", response_model=NLQResponse)
+# # --- Endpoint (Modified) ---
+# @app.post("/ask", response_model=NLQResponse)
+# async def handle_ask(request: NLQRequest):
+#     # Directly reuse the logic of /nlq
+#     if not chatbot_instance or not session_manager:
+#         logger.error("Server is not fully initialized.")
+#         raise HTTPException(status_code=503, detail="Server is not ready. Please try again in a moment.")
+
+#     try:
+#         user_session = session_manager.get_session(request.user_id)
+#         answer = chatbot_instance.process_nl_query(request.query, user_session)
+#         return NLQResponse(answer=answer)
+#     except Exception as e:
+#         logger.error(f"Error handling request: {e}", exc_info=True)
+#         raise HTTPException(status_code=500, detail="Internal error while handling /ask request.")
+
+@app.post("/ask", response_model=NLQResponse)
 async def handle_nlq(request: NLQRequest):
     if not chatbot_instance or not session_manager:
         logger.error("Server is not fully initialized.")

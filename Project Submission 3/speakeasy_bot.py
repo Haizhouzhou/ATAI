@@ -14,10 +14,43 @@ SPEAKEASY_PASS = os.getenv("SPEAKEASY_PASS", "Sv9Kx0sH")
 BACKEND_ASK_URL = os.getenv("BACKEND_ASK_URL", "http://localhost:8000/ask")
 BACKEND_HEALTH_URL = os.getenv("BACKEND_HEALTH_URL", "http://localhost:8000/health")
 
-def render_answer(payload: dict) -> str:
-    """把你 /ask 的 JSON 回答，渲染成 Speakeasy 聊天里的纯文本"""
-    parts = []
+# def render_answer(payload: dict) -> str:
+#     """把你 /ask 的 JSON 回答，渲染成 Speakeasy 聊天里的纯文本"""
+#     parts = []
 
+#     fa = payload.get("factual_answer")
+#     if fa and isinstance(fa, dict):
+#         ans = fa.get("answer", [])
+#         if ans:
+#             parts.append(f"Factual: {', '.join(map(str, ans))}")
+
+#     ea = payload.get("embedding_answer")
+#     if ea and isinstance(ea, dict):
+#         ans = ea.get("answer")
+#         score = ea.get("score")
+#         if ans:
+#             if score is not None:
+#                 parts.append(f"Embedding: {ans} (score={round(float(score), 4)})")
+#             else:
+#                 parts.append(f"Embedding: {ans}")
+
+#     note = payload.get("note")
+#     if note:
+#         parts.append(f"Note: {note}")
+
+#     if not parts:
+#         return "No results found."
+
+#     return "\n".join(parts)
+
+def render_answer(payload: dict) -> str:
+    """Render your backend JSON into plain text for Speakeasy"""
+    # 如果你的后端返回 {"answer": "..."}，优先显示它
+    if "answer" in payload:
+        return payload["answer"]
+
+    # 保留原逻辑（兼容以前的格式）
+    parts = []
     fa = payload.get("factual_answer")
     if fa and isinstance(fa, dict):
         ans = fa.get("answer", [])
@@ -39,7 +72,7 @@ def render_answer(payload: dict) -> str:
         parts.append(f"Note: {note}")
 
     if not parts:
-        return "No results found."
+        return "No other results found."
 
     return "\n".join(parts)
 
