@@ -1,7 +1,6 @@
 import os
 
 # --- File Paths ---
-# Use environment variables for paths, falling back to defaults
 DATA_DIR = os.getenv('DATA_DIR', '/data')
 CACHE_DIR = os.getenv('CACHE_DIR', '.cache')
 
@@ -25,19 +24,14 @@ PREFIXES = """
 """
 
 # --- PREDICATE MAPPING ---
-# Maps natural language terms to Wikidata predicate IDs
-# IMPORTANT: This dictionary is processed by RelationMapper,
-# which sorts keys by length (desc) to match longest phrases first.
 PREDICATE_MAP = {
-    # Properties for QA (Eval 2 Fixes Added)
+    # QA Properties
     "nominated for": "wdt:P1411",
     "was nominated": "wdt:P1411",
     "nomination": "wdt:P1411",
-    "award": "wdt:P166", # Shorter key 'award' will be matched after 'nominated for'
-    
+    "award": "wdt:P166",
     "composer": "wdt:P86",
     "music by": "wdt:P86",
-    
     "director": "wdt:P57",
     "directed by": "wdt:P57",
     "screenwriter": "wdt:P58",
@@ -55,43 +49,56 @@ PREDICATE_MAP = {
     "rating": "ddis:rating",
     "user rating": "ddis:rating",
     
-    # Properties for Recommendation Preferences & Explanations
+    # Recommendation Specific
     "language": "wdt:P407",
-    "year": "wdt:P577", # Simplified mapping
-    "part of series": "wdt:P179", # For "Halloween", "Friday the 13th"
-    "based on": "wdt:P4969", # "derivative work", for "Hamlet", "Lion King"
+    "year": "wdt:P577",
+    "part of series": "wdt:P179",
+    "based on": "wdt:P4969",
+    "image": "wdt:P18"
 }
 
-# --- INTENT PARSING (EVAL 3) ---
+# --- GENRE MAPPING (Rule: Hardcode common genres to avoid linking errors) ---
+GENRE_MAPPING = {
+    "action": "wd:Q188473",
+    "horror": "wd:Q200092",
+    "comedy": "wd:Q157443",
+    "romance": "wd:Q1054574",
+    "drama": "wd:Q130232",
+    "sci-fi": "wd:Q471839",
+    "science fiction": "wd:Q471839",
+    "adventure": "wd:Q319221",
+    "thriller": "wd:Q182015",
+    "animation": "wd:Q581714",
+    "animated": "wd:Q581714",
+    "fantasy": "wd:Q157394",
+    "crime": "wd:Q959790",
+    "documentary": "wd:Q93204"
+}
 
-# Keywords to detect recommendation intent
+# --- INTENT PARSING ---
 RECOMMENDATION_KEYWORDS = [
     "recommend", "suggest", "give me", "find me", "looking for",
-    "like", "similar to", "another", "more movies"
+    "like", "similar to", "another", "more movies", "movies like",
+    "movie with", "film with"
 ]
 
-# Keywords to detect QA intent
 QA_KEYWORDS = [
     "who", "what", "when", "where", "which", "how many", "list", "is", "did"
 ]
 
-# Keywords for follow-up questions
 FOLLOW_UP_KEYWORDS = [
     "another", "more", "like that", "how about", "what else"
 ]
 
-# Keywords to detect negations/exclusions
 NEGATION_KEYWORDS = [
     "not", "don't", "without", "except", "avoid", "no", "less"
 ]
 
-# Keywords to map to preference types
 PREFERENCE_KEYWORDS = {
     "genre": ["genre", "type of movie", "about", "is a"],
     "actor": ["actor", "starring", "with", "features"],
     "director": ["director", "directed by"],
-    "language": ["language", "speak"], # "in [language]" is handled by regex
+    "language": ["language", "speak"],
 }
 
-# Supported languages for specific regex matching (Rule 2.3 fix)
 SUPPORTED_LANGUAGES_REGEX = r'\b(French|German|Spanish|English|Italian|Japanese|Korean)\b'

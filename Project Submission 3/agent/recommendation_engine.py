@@ -11,9 +11,6 @@ from agent.constants import PREDICATE_MAP, PREFIXES
 logger = logging.getLogger(__name__)
 
 class RecommendationEngine:
-    """
-    Generates movie recommendations based on session state.
-    """
     def __init__(self,
                  graph_executor: GraphExecutor,
                  embedding_executor: EmbeddingExecutor,
@@ -27,184 +24,177 @@ class RecommendationEngine:
         logger.info("RecommendationEngine initialized.")
 
     def get_recommendations(self, session: Session, top_k: int = 5) -> List[Dict[str, Any]]:
-        """
-        Main method to get recommendations.
-        Orchestrates candidate generation, filtering, and ranking.
-        """
         logger.info(f"Getting recommendations for session {session.user_id}")
         
         all_candidates: Dict[str, Dict[str, Any]] = {}
         exclude_list = session.get_exclude_list()
         
-        # --- 1. Candidate Generation (with filters) ---
         constraints = session.constraints
         negations = session.negations
         
-        # A. Graph-based candidates from SEED movies
+        # --- 1. Candidate Generation ---
+        
+        # A. SEED MOVIES (Graph & Embedding)
         if session.seed_movies:
-            logger.debug("Generating candidates from seed movies (Graph)")
+            logger.debug("Generating candidates from seed movies.")
             graph_candidates = self.get_graph_candidates_from_seeds(
                 session.seed_movies, exclude_list, constraints, negations
             )
             self.merge_candidates(all_candidates, graph_candidates, 'graph_seed')
 
-        # B. Embedding-based candidates from SEED movies
-        if session.seed_movies:
-            logger.debug("Generating candidates from seed movies (Embedding)")
             embedding_candidates = self.get_embedding_candidates_from_seeds(session.seed_movies, exclude_list)
             self.merge_candidates(all_candidates, embedding_candidates, 'embed_seed')
             
-        # C. Graph-based candidates from explicit PREFERENCES
+        # B. PREFERENCES (Graph with Embedding Fallback)
         if session.preferences:
-            logger.debug("Generating candidates from preferences (Graph)")
+            logger.debug("Generating candidates from preferences.")
             pref_candidates = self.get_graph_candidates_from_prefs(
                 session.preferences, exclude_list, constraints, negations
             )
-            self.merge_candidates(all_candidates, pref_candidates, 'graph_pref')
+            
+            # Fallback: If explicit graph query returns nothing, treat the preference entities as seeds for embedding search
+            if not pref_candidates:
+                logger.info("No graph results for preferences. Trying embedding fallback.")
+                pref_seeds = list(session.preferences.values())
+                embed_pref_candidates = self.get_embedding_candidates_from_seeds(pref_seeds, exclude_list)
+                self.merge_candidates(all_candidates, embed_pref_candidates, 'embed_seed')
+            else:
+                self.merge_candidates(all_candidates, pref_candidates, 'graph_pref')
 
         logger.info(f"Generated {len(all_candidates)} raw candidates.")
 
         # --- 2. Filtering ---
-        logger.debug("Filtering candidates based on constraints and negations.")
         filtered_candidates = self.filter_candidates(all_candidates, constraints, negations)
-        logger.info(f"Filtered down to {len(filtered_candidates)} candidates.")
-
+        
         # --- 3. Ranking ---
-        logger.debug("Ranking candidates.")
         ranked_list = self.rank_candidates(filtered_candidates, session)
         
-        # --- 4. Diversification (Rule 2.2) ---
-        logger.debug("Applying MMR diversification.")
+        # --- 4. Diversification ---
         diversified_list = self.apply_mmr_diversity(ranked_list, top_k)
         
-        # --- 5. Format Output ---
-        logger.debug("Formatting final recommendations.")
+        # --- 5. Format Output & Fetch Images ---
         final_recs = []
+        
+        movie_ids_for_images = [mid for mid, _, _ in diversified_list]
+        image_map = self.fetch_images(movie_ids_for_images)
+
         for movie_id, score, reason in diversified_list:
             try:
                 label = self.entity_linker.get_label(movie_id)
-                if label:
-                    final_recs.append({'id': movie_id, 'label': label, 'score': score, 'reason': reason})
+                if not label: label = "Unknown Title" 
+
+                rec_item = {'id': movie_id, 'label': label, 'score': score, 'reason': reason}
+                
+                if movie_id in image_map:
+                    rec_item['image_id'] = image_map[movie_id]
+                    
+                final_recs.append(rec_item)
             except Exception as e:
-                logger.warning(f"Could not get label for {movie_id}: {e}")
+                logger.warning(f"Error formatting recommendation {movie_id}: {e}")
         
-        logger.info(f"Returning {len(final_recs)} final recommendations.")
         return final_recs
 
-    def merge_candidates(self,
-                         main_dict: Dict[str, Dict],
-                         new_candidates: Dict[str, Dict],
-                         source_name: str):
-        """
-        Merges candidates from a new source into the main dictionary.
-        """
+    def fetch_images(self, movie_ids: List[str]) -> Dict[str, str]:
+        if not movie_ids: return {}
+        image_map = {}
+        try:
+            query = self.composer.get_image_query(movie_ids)
+            if query:
+                results = self.graph_executor.execute_query(query)
+                if results and isinstance(results, list):
+                    for res in results:
+                        try:
+                            movie_uri = str(res['movie'])
+                            image_url = str(res['imageUrl'])
+                            # Expected format: https://.../images/0227/rm73963776.jpg
+                            if '/' in image_url:
+                                filename = image_url.split('/')[-1]
+                                img_id = filename.split('.')[0]
+                                image_map[movie_uri] = img_id
+                        except Exception as e:
+                            logger.debug(f"Failed to parse image URL: {e}")
+                            continue
+        except Exception as e:
+            logger.error(f"Error fetching images: {e}")
+        return image_map
+
+    def merge_candidates(self, main_dict, new_candidates, source_name):
         for movie_id, info in new_candidates.items():
             if movie_id not in main_dict:
                 main_dict[movie_id] = {'score': 0.0, 'reasons': set(), 'rating': 0.0}
             
             score_weight = 1.0
-            
-            # Give embeddings a very low score so SPARQL results
-            # (which are now working) always win.
-            if source_name == 'embed_seed':
-                score_weight = 0.01 
-            elif source_name == 'graph_pref':
-                score_weight = 2.0 # Explicit preferences are important
+            if source_name == 'embed_seed': score_weight = 0.8 
+            elif source_name == 'graph_pref': score_weight = 3.0
+            elif source_name == 'graph_seed': score_weight = 1.5 
             
             main_dict[movie_id]['score'] += info.get('score', 0.5) * score_weight
             main_dict[movie_id]['reasons'].update(info.get('reasons', {'is a potential match'}))
             main_dict[movie_id]['rating'] = max(main_dict[movie_id]['rating'], info.get('rating', 0.0))
 
-    def get_graph_candidates_from_seeds(self, 
-                                        seed_movies: Set[str], 
-                                        exclude_list: Set[str],
-                                        constraints: Dict, 
-                                        negations: Dict) -> Dict[str, Dict]:
-        """
-        Finds candidates that share properties with seed movies.
-        """
+    def get_graph_candidates_from_seeds(self, seed_movies, exclude_list, constraints, negations):
         candidates = {}
         seed_uris = [f"<{seed}>" for seed in seed_movies]
         
         properties_to_share = [
-            (PREDICATE_MAP['genre'], 1.0, "shares the genre"),
-            (PREDICATE_MAP['director'], 0.8, "has the same director"),
-            (PREDICATE_MAP['actor'], 0.5, "shares an actor"),
-            (PREDICATE_MAP['part of series'], 0.9, "is in the same series as"),
-            (PREDICATE_MAP['based on'], 0.7, "is based on similar work as"),
+            (PREDICATE_MAP['genre'], 2.0, "shares the genre"), 
+            (PREDICATE_MAP['part of series'], 3.0, "is in the same series as"),
+            (PREDICATE_MAP['director'], 1.5, "has the same director"),
+            (PREDICATE_MAP['actor'], 1.0, "shares an actor"),
         ]
         
         for prop_pid, weight, reason_prefix in properties_to_share:
-            query = self.composer.get_recommendation_by_shared_property_query(
-                seed_uris, prop_pid, constraints, negations
-            )
             try:
+                query = self.composer.get_recommendation_by_shared_property_query(
+                    seed_uris, prop_pid, constraints, negations
+                )
                 results = self.graph_executor.execute_query(query)
-                for res in results:
-                    # --- THIS IS THE FIX ---
-                    # res['movie'] is an rdflib.URIRef object. Convert to string.
-                    # res['propLabel'] is an rdflib.Literal. Use .value.
-                    
-                    movie_id = str(res['movie']) # Convert URIRef to string
-                    if movie_id in exclude_list:
-                        continue
-                    
-                    prop_label_term = res.get('propLabel')
-                    shared_val_label = prop_label_term.value if prop_label_term else 'a shared property'
-                    reason = f"{reason_prefix} '{shared_val_label}'"
-                    
-                    rating_term = res.get('rating')
-                    rating = float(rating_term.value) if rating_term else 0.0
-                    # --- END FIX ---
-                    
-                    if movie_id not in candidates:
-                        candidates[movie_id] = {'score': 0.0, 'reasons': set(), 'rating': 0.0}
-                    
-                    candidates[movie_id]['score'] += weight
-                    candidates[movie_id]['reasons'].add(reason)
-                    candidates[movie_id]['rating'] = max(candidates[movie_id]['rating'], rating)
-                    
-            except Exception as e:
-                logger.error(f"Error querying for shared property {prop_pid}: {e}", exc_info=True)
-        
-        logger.debug(f"Graph candidates from seeds count: {len(candidates)}") # Added debug log
+                if results and isinstance(results, list):
+                    for res in results:
+                        try:
+                            movie_id = str(res['movie'])
+                            if movie_id in exclude_list: continue
+                            
+                            prop_label_term = res.get('propLabel')
+                            shared_val_label = prop_label_term.value if prop_label_term else 'common element'
+                            reason = f"{reason_prefix} '{shared_val_label}'"
+                            
+                            rating_term = res.get('rating')
+                            rating = float(rating_term.value) if rating_term else 0.0
+                            
+                            if movie_id not in candidates:
+                                candidates[movie_id] = {'score': 0.0, 'reasons': set(), 'rating': 0.0}
+                            
+                            candidates[movie_id]['score'] += weight
+                            candidates[movie_id]['reasons'].add(reason)
+                            candidates[movie_id]['rating'] = max(candidates[movie_id]['rating'], rating)
+                        except Exception: continue
+            except Exception: continue
         return candidates
 
-    def get_embedding_candidates_from_seeds(self, seed_movies: Set[str], exclude_list: Set[str]) -> Dict[str, Dict]:
-        """
-        Finds candidates using embedding similarity to seed movies.
-        """
+    def get_embedding_candidates_from_seeds(self, seed_movies, exclude_list):
         candidates = {}
         try:
             all_neighbors = []
             for seed_id in seed_movies:
-                neighbors = self.embedding_executor.get_nearest_neighbors(
-                    entity_id=seed_id, k=20, embedding_type='entity'
-                )
-                all_neighbors.extend(neighbors) 
+                try:
+                    neighbors = self.embedding_executor.get_nearest_neighbors(
+                        entity_id=seed_id, k=40, embedding_type='entity'
+                    )
+                    all_neighbors.extend(neighbors) 
+                except Exception: continue
                 
             for movie_id, score in all_neighbors:
-                if movie_id in exclude_list:
-                    continue
+                if movie_id in exclude_list: continue
                 if movie_id not in candidates:
                     candidates[movie_id] = {'score': 0.0, 'reasons': set(), 'rating': 0.0}
                 
                 candidates[movie_id]['score'] += score 
                 candidates[movie_id]['reasons'].add("it's similar to movies you like")
-                
-        except Exception as e:
-            logger.error(f"Error getting embedding candidates: {e}")
-        
+        except Exception: pass
         return candidates
 
-    def get_graph_candidates_from_prefs(self, 
-                                        preferences: Dict[str, Any], 
-                                        exclude_list: Set[str],
-                                        constraints: Dict, 
-                                        negations: Dict) -> Dict[str, Dict]:
-        """
-        Finds candidates that match explicit preferences.
-        """
+    def get_graph_candidates_from_prefs(self, preferences, exclude_list, constraints, negations):
         candidates = {}
         mapped_prefs = {}
         for pref_type, value_id in preferences.items():
@@ -212,66 +202,53 @@ class RecommendationEngine:
                 pid = PREDICATE_MAP[pref_type]
                 mapped_prefs[pid] = f"<{value_id}>" 
         
-        if not mapped_prefs:
-            return {}
+        if not mapped_prefs: return {}
 
-        query = self.composer.get_recommendation_by_property_query(
-            mapped_prefs, constraints, negations
-        )
         try:
+            query = self.composer.get_recommendation_by_property_query(
+                mapped_prefs, constraints, negations
+            )
             results = self.graph_executor.execute_query(query)
-            for res in results:
-                # --- THIS IS THE FIX ---
-                movie_id = str(res['movie']) # Convert URIRef to string
-                if movie_id in exclude_list:
-                    continue
-                
-                rating_term = res.get('rating')
-                rating = float(rating_term.value) if rating_term else 0.0
-                # --- END FIX ---
-                
-                if movie_id not in candidates:
-                    candidates[movie_id] = {'score': 0.0, 'reasons': set(), 'rating': 0.0}
-                
-                candidates[movie_id]['score'] += 2.0 
-                candidates[movie_id]['reasons'].add("it matches your preferences")
-                candidates[movie_id]['rating'] = max(candidates[movie_id]['rating'], rating)
-                
+            
+            if results and isinstance(results, list):
+                for res in results:
+                    try:
+                        movie_id = str(res['movie'])
+                        if movie_id in exclude_list: continue
+                        
+                        rating_term = res.get('rating')
+                        rating = float(rating_term.value) if rating_term else 0.0
+                        
+                        if movie_id not in candidates:
+                            candidates[movie_id] = {'score': 0.0, 'reasons': set(), 'rating': 0.0}
+                        
+                        candidates[movie_id]['score'] += 3.0
+                        candidates[movie_id]['reasons'].add("it matches your preferences")
+                        candidates[movie_id]['rating'] = max(candidates[movie_id]['rating'], rating)
+                    except Exception: continue
         except Exception as e:
             logger.error(f"Error querying for preferences: {e}")
-
-        logger.debug(f"Graph candidates from prefs count: {len(candidates)}") # Added debug log
         return candidates
 
-    def filter_candidates(self, 
-                          candidates: Dict[str, Dict], 
-                          constraints: Dict[str, Any], 
-                          negations: Dict[str, Any]) -> Dict[str, Dict]:
-        """
-        Filters candidates (especially from embeddings) to ensure they are
-        movies and match all session constraints.
-        """
-        if not candidates:
-            return {}
-
-        logger.info(f"Running secondary filter on {len(candidates)} candidates.")
+    def filter_candidates(self, candidates, constraints, negations):
+        if not candidates: return {}
         
         candidate_iris = [f"<{c_id}>" for c_id in candidates.keys()]
+        if len(candidate_iris) > 200:
+             sorted_keys = sorted(candidates.keys(), key=lambda k: candidates[k]['score'], reverse=True)[:200]
+             candidate_iris = [f"<{k}>" for k in sorted_keys]
+
+        if not candidate_iris: return {}
+
         values_block = f"VALUES ?movie {{ {' '.join(candidate_iris)} }}"
-        
-        filter_triples, filter_clauses = self.composer._build_filter_block(
-            constraints, negations, "?movie"
-        )
+        filter_triples, filter_clauses = self.composer._build_filter_block(constraints, negations, "?movie")
 
         query = f"""
             {PREFIXES}
-            
             SELECT ?movie
             WHERE {{
                 {values_block}
-                
                 ?movie wdt:P31 wd:Q11424 .
-                
                 {filter_triples}
                 {filter_clauses}
             }}
@@ -281,56 +258,34 @@ class RecommendationEngine:
         valid_movie_ids = set()
         try:
             results = self.graph_executor.execute_query(query)
-            for res in results:
-                valid_movie_ids.add(str(res['movie']))
-                
-        except Exception as e:
-            logger.error(f"Error during secondary filtering query: {e}. Failing open.", exc_info=True)
-            return candidates # Fail open
+            if results and isinstance(results, list):
+                for res in results:
+                    valid_movie_ids.add(str(res['movie']))
+        except Exception:
+            return candidates
 
-        filtered_candidates = {
-            mid: info for mid, info in candidates.items() 
-            if mid in valid_movie_ids
-        }
-        
-        logger.info(f"Secondary filter passed {len(filtered_candidates)} candidates.")
-        return filtered_candidates
+        return {mid: info for mid, info in candidates.items() if mid in valid_movie_ids}
 
-    def rank_candidates(self, candidates: Dict[str, Dict], session: Session) -> List[tuple]:
-        """
-        Ranks candidates based on merged scores and provides one main reason.
-        """
+    def rank_candidates(self, candidates, session):
         ranked_list = []
         for movie_id, info in candidates.items():
-            final_score = info['score']
-            
-            final_score += (info['rating'] / 10.0) * 0.2 
+            # Rating boost: A rating of 10 adds 5.0 to the score, dominating other factors if needed
+            final_score = info['score'] + (info['rating'] * 0.5) 
             
             best_reason = "it's a good match"
             if info['reasons']:
                 non_embed_reasons = [r for r in info['reasons'] if "similar" not in r]
-                if non_embed_reasons:
-                    best_reason = non_embed_reasons[0]
-                else:
-                    best_reason = list(info['reasons'])[0]
+                best_reason = non_embed_reasons[0] if non_embed_reasons else list(info['reasons'])[0]
             
             ranked_list.append((movie_id, final_score, best_reason))
         
         ranked_list.sort(key=lambda x: x[1], reverse=True)
         return ranked_list
 
-    def apply_mmr_diversity(self, 
-                            ranked_list: List[tuple], 
-                            k: int, 
-                            lambda_val: float = 0.7) -> List[tuple]:
-        """
-        Re-ranks the list using Maximal Marginal Relevance (MMR) for diversity.
-        """
-        if not ranked_list or len(ranked_list) <= k:
-            return ranked_list[:k]
-
+    def apply_mmr_diversity(self, ranked_list, k, lambda_val=0.7):
+        if not ranked_list or len(ranked_list) <= k: return ranked_list[:k]
         try:
-            all_candidate_ids = [mid for mid, score, reason in ranked_list]
+            all_candidate_ids = [mid for mid, _, _ in ranked_list]
             all_embeddings = self.embedding_executor.get_embeddings(all_candidate_ids)
             
             candidate_pool = {}
@@ -338,9 +293,7 @@ class RecommendationEngine:
                 if all_embeddings[i] is not None:
                     candidate_pool[mid] = (score, reason, all_embeddings[i])
 
-            if not candidate_pool:
-                 logger.warning("MMR: Candidate pool is empty after embedding check.")
-                 return ranked_list[:k]
+            if not candidate_pool: return ranked_list[:k]
                  
             max_score = max(s for s, r, e in candidate_pool.values())
             if max_score > 0:
@@ -361,14 +314,10 @@ class RecommendationEngine:
                 best_item_id = None
                 best_mmr_score = -np.inf
                 
-                selected_embeds = [candidate_pool[mid][2] for mid in selected_ids if mid in candidate_pool and candidate_pool[mid][2] is not None]
+                selected_embeds = [candidate_pool[mid][2] for mid in selected_ids if mid in candidate_pool]
                 
                 for cand_id, (score, reason, embed) in candidate_pool.items():
-                    if embed is None:
-                        continue
-                        
                     relevance = score
-                    
                     max_sim = 0.0
                     if selected_embeds:
                         for sel_embed in selected_embeds:
@@ -376,7 +325,6 @@ class RecommendationEngine:
                             max_sim = max(max_sim, sim)
                     
                     mmr_score = (lambda_val * relevance) - ((1 - lambda_val) * max_sim)
-                    
                     if mmr_score > best_mmr_score:
                         best_mmr_score = mmr_score
                         best_item_id = cand_id
@@ -388,9 +336,6 @@ class RecommendationEngine:
                     del candidate_pool[best_item_id]
                 else:
                     break 
-
             return selected
-            
-        except Exception as e:
-            logger.error(f"Error during MMR diversification: {e}. Returning original ranked list.")
+        except Exception:
             return ranked_list[:k]

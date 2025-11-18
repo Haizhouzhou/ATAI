@@ -55,6 +55,9 @@ class Config:
         self.relation_index = embed_files.get("relation_ids") # This is the relation_ids.tsv
         
         self.label_index = LABEL_INDEX_PATH
+
+        self.user_ratings_csv = DATA_ROOT / "ratings" / "user_ratings.csv"
+        self.item_ratings_csv = DATA_ROOT / "ratings" / "item_ratings.csv"
         
         if not self.graph_db:
             raise FileNotFoundError(f"Could not find Knowledge Graph file in {DATA_ROOT} using patterns {KG_FILE_PATTERNS}")
@@ -65,6 +68,7 @@ class Config:
         logger.info(f"Graph DB found: {self.graph_db}")
         logger.info(f"Entity Embeddings found: {self.entity_embeddings}")
         logger.info(f"Entity ID map (tsv) found: {self.entity_index}")
+        logger.info(f"Relation Embeddings found: {self.relation_embeddings}")
         logger.info(f"Relation ID map (tsv) found: {self.relation_index}")
         logger.info(f"Label Index path: {self.label_index}")
 

@@ -28,9 +28,7 @@ class EntityLinker:
         self.index_path = LABEL_INDEX_PATH 
         self.label_to_iri: Dict[str, str] = {}
         self.iri_to_label: Dict[str, str] = {}
-        # --- FIX 2: ADD A LOWERCASE MAP FOR EXACT MATCHING ---
         self.lower_label_to_iri: Dict[str, str] = {}
-        # --- END FIX ---
         self._ensure_index()
 
     def _ensure_index(self):
@@ -40,9 +38,7 @@ class EntityLinker:
                     self.label_to_iri = pickle.load(f)
                 
                 self.iri_to_label = {v: k for k, v in self.label_to_iri.items()}
-                # --- FIX 2: POPULATE LOWERCASE MAP ---
                 self.lower_label_to_iri = {k.lower(): v for k, v in self.label_to_iri.items()}
-                # --- END FIX ---
                 
                 log.info("Loaded label index from cache: %s", self.index_path)
                 return
@@ -53,21 +49,21 @@ class EntityLinker:
         log.info("Building label index from KG (one-time)...")
         label_to_iri: Dict[str, str] = {}
         iri_to_label: Dict[str, str] = {} 
-        lower_label_to_iri: Dict[str, str] = {} # --- FIX 2 ---
+        lower_label_to_iri: Dict[str, str] = {}
         
         for s, p, o in kg.triples((None, RDFS.label, None)):
             label_str = str(o)
             iri_str = str(s)
             
             label_to_iri[label_str] = iri_str
-            lower_label_to_iri[label_str.lower()] = iri_str # --- FIX 2 ---
+            lower_label_to_iri[label_str.lower()] = iri_str
             
             if iri_str not in iri_to_label:
                 iri_to_label[iri_str] = label_str 
 
         self.label_to_iri = label_to_iri
         self.iri_to_label = iri_to_label 
-        self.lower_label_to_iri = lower_label_to_iri # --- FIX 2 ---
+        self.lower_label_to_iri = lower_label_to_iri
         
         os.makedirs(os.path.dirname(self.index_path), exist_ok=True)
         with open(self.index_path, "wb") as f:
@@ -82,34 +78,26 @@ class EntityLinker:
         return g
 
     def get_label(self, iri: str) -> str | None:
-        """
-        Gets the label for a given IRI.
-        Needed by recommendation_engine.py
-        """
         return self.iri_to_label.get(iri)
 
     def link(self, raw_strings: List[str]) -> List[EntityCandidate]:
-        """
-        Links strings to entities.
-        """
         if not raw_strings:
             return []
         
         labels = list(self.label_to_iri.keys())
-        scored: List[Tuple[str, str, float]] = []  # (label, iri, score)
+        scored: List[Tuple[str, str, float]] = [] 
         
         for s in raw_strings:
             s_lower = s.lower()
             
-            # --- FIX 2: PRIORITIZE EXACT (CASE-INSENSITIVE) MATCH ---
+            # Exact match (case-insensitive) priority
             if s_lower in self.lower_label_to_iri:
                 iri = self.lower_label_to_iri[s_lower]
-                label = self.iri_to_label.get(iri, s) # Get proper cased label
-                scored.append((label, iri, 101.0)) # Score 101 to beat fuzzy
-                continue # Skip fuzzy search if we find an exact match
-            # --- END FIX ---
+                label = self.iri_to_label.get(iri, s)
+                scored.append((label, iri, 101.0)) 
+                continue 
             
-            # fuzzy matches (if no exact match)
+            # Fuzzy matches
             matches = process.extract(
                 s, labels, scorer=fuzz.WRatio, limit=ENTITY_TOPK * 3
             )
@@ -118,7 +106,6 @@ class EntityLinker:
                     iri = self.label_to_iri[lbl]
                     scored.append((lbl, iri, float(score)))
         
-        # deduplicate by iri, keep best label/score
         best: Dict[str, Tuple[str, float]] = {}
         for lbl, iri, sc in scored:
             if iri not in best or sc > best[iri][1]:
@@ -138,6 +125,5 @@ class EntityLinker:
         """
         Legacy function from Project 2 for compatibility.
         """
-        log.warning("Using legacy function 'link_entities'. Consider using 'link'.")
         candidates = self.link([text])
         return [(c.label, c.iri, int(c.score)) for c in candidates]

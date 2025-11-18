@@ -1,6 +1,6 @@
 import re
 import logging
-from typing import Dict, Any, List
+from typing import Dict, Any, List, Tuple
 from agent.entity_linker import EntityLinker
 from agent.relation_mapper import RelationMapper
 from agent.constants import (
@@ -12,38 +12,22 @@ from agent.session_manager import Session
 logger = logging.getLogger(__name__)
 
 class PreferenceParser:
-    """
-    Parses natural language queries to detect intent, extract preferences,
-    seed movies, and constraints for the recommendation engine.
-    
-    (Eval 3 Fix - Rule 2.3)
-    """
-
     def __init__(self, entity_linker: EntityLinker, relation_mapper: RelationMapper):
         self.entity_linker = entity_linker
         self.relation_mapper = relation_mapper
-        # Simple regex for years and decades (e.g., 1990, 1990s, after 2000)
         self.year_regex = re.compile(r'(\b(after|before|since|from|in)\s+)?(\d{4})s?\b', re.IGNORECASE)
-        # Specific language regex to avoid "in 1990s" conflict
         self.lang_regex = re.compile(r'\b(in|spoken in)\s+(' + SUPPORTED_LANGUAGES_REGEX + r')\b', re.IGNORECASE)
+        self.rating_regex = re.compile(r'\b(rating|score|rated)\s+(above|higher than|more than|over|below|less than|under|<|>)\s+(\d+(\.\d+)?)', re.IGNORECASE)
         logger.info("PreferenceParser initialized.")
 
     def parse(self, query: str, session: Session) -> Dict[str, Any]:
-        """
-        Main parsing method.
-        """
         logger.debug(f"Parsing query: {query}")
         query_lower = query.lower()
-
-        # Intent detection is now simpler, as app/main.py does the QA routing.
-        # We just check if this looks like a recommendation query.
         intent = self.detect_intent(query_lower)
-        
         seed_movies = self.extract_seed_movies(query)
         preferences, constraints, negations = self.extract_preferences_and_constraints(query)
         is_follow_up = any(keyword in query_lower for keyword in FOLLOW_UP_KEYWORDS)
 
-        # If we found seeds or preferences, it's definitely a rec intent
         if seed_movies or preferences or constraints or negations:
             intent = 'recommendation'
             
@@ -57,101 +41,101 @@ class PreferenceParser:
         }
 
     def detect_intent(self, query_lower: str) -> str:
-        """
-        Detects if the user's intent is likely recommendation.
-        The QA intent is already handled by app/main.py checking for relations.
-        """
         if any(keyword in query_lower for keyword in RECOMMENDATION_KEYWORDS):
             return 'recommendation'
-        
-        # If user just types a movie name (and it's not a question)
         if '?' not in query_lower and len(query_lower.split()) < 10:
              return 'recommendation'
-
-        return 'qa' # Default fallback if no rec keywords
+        return 'qa'
 
     def extract_seed_movies(self, query: str) -> List[str]:
-        """
-        Extracts movie titles from the query and links them to entity IDs.
-        """
-        quoted_titles = re.findall(r'["\'](.*?)["\']', query)
+        candidates = []
+        quoted = re.findall(r'["\'](.*?)["\']', query)
+        candidates.extend(quoted)
         
-        # Heuristic: Link entities from the whole query
-        linked_entities = self.entity_linker.link([query])
-        
-        # Add quoted titles
-        for title in quoted_titles:
-            linked_entities.extend(self.entity_linker.link_entities(title))
+        match_like = re.search(r'(like|similar to|resemble)\s+(.*)', query, re.IGNORECASE)
+        if match_like:
+            raw_list = match_like.group(2)
+            parts = raw_list.split(',')
+            for part in parts:
+                clean = part.strip()
+                if " and " in clean:
+                    sub = clean.split(" and ")
+                    candidates.extend([s.strip() for s in sub])
+                else:
+                    candidates.append(clean)
+        candidates.append(query)
+        clean_candidates = list(set(c for c in candidates if c and len(c) > 2))
         
         seed_movie_ids = []
+        linked_entities = self.entity_linker.link(clean_candidates)
         for entity in linked_entities:
-            # We trust the linker, which prioritizes movies.
-            seed_movie_ids.append(entity.iri) # entity[1] is the ID
-        
+            if entity.score > 88: 
+                seed_movie_ids.append(entity.iri)
         return list(set(seed_movie_ids))
 
-    def extract_preferences_and_constraints(self, query: str) -> (Dict, Dict, Dict):
-        """
-        Extracts preferences (e.g., genre, actor) and constraints (e.g., year).
-        """
+    def extract_preferences_and_constraints(self, query: str) -> Tuple[Dict, Dict, Dict]:
         preferences = {}
         constraints = {}
         negations = {}
         
         query_lower = query.lower()
         is_negated = any(neg in query_lower for neg in NEGATION_KEYWORDS)
-        
-        # --- 1. Map keyword-based preferences (genre, actor, director) ---
+        target_dict = negations if is_negated else preferences
+        constraint_target = negations if is_negated else constraints
+
         for pref_type, keywords in PREFERENCE_KEYWORDS.items():
-            target_dict = negations if is_negated and pref_type in ['genre', 'actor', 'director'] else preferences
-            
             for keyword in keywords:
                 if keyword in query_lower:
                     match = re.search(f'{keyword}(\s+(?:by|is|as|a|an|the))?(\s+[\w\s]+)', query_lower)
                     if match and match.group(2):
                         value = match.group(2).strip().split(" from ")[0].split(" in ")[0].split(" with ")[0]
+                        value = re.sub(r'[?.]+$', '', value)
                         
+                        linked_val = None
                         if pref_type in ['actor', 'director']:
-                            linked_val = self.entity_linker.link_entities(value)
-                            if linked_val:
-                                target_dict[pref_type] = linked_val[0][1] # Get ID
+                            res = self.entity_linker.link_entities(value)
+                            if res: linked_val = res[0][1]
                         elif pref_type == 'genre':
-                            linked_val = self.entity_linker.link_entities(f"{value} film")
-                            if not linked_val:
-                                linked_val = self.entity_linker.link_entities(value)
-                            if linked_val:
-                                target_dict[pref_type] = linked_val[0][1] # Get ID
+                            res = self.entity_linker.link_entities(f"{value} film")
+                            if not res:
+                                res = self.entity_linker.link_entities(value)
+                            if res: linked_val = res[0][1]
+                        
+                        if linked_val:
+                            target_dict[pref_type] = linked_val
                     break
 
-        # --- 2. Extract year constraints ---
         year_matches = self.year_regex.finditer(query)
         for match in year_matches:
             prefix = (match.group(2) or '').lower()
             year_str = match.group(3)
-            
-            if 's' in match.group(0): # '1990s'
-                year = int(year_str)
-                (negations if is_negated else constraints)['year_range'] = (year, year + 9)
-                continue
-            
             year = int(year_str)
+            if 's' in match.group(0):
+                constraint_target['year_range'] = (year, year + 9)
+                continue
             op = '='
-            if prefix == 'after' or prefix == 'since':
-                op = '>'
-            elif prefix == 'before':
-                op = '<'
-            elif prefix == 'in' or prefix == 'from':
-                op = '='
-                
-            (negations if is_negated else constraints)['year'] = (op, year)
+            if prefix in ['after', 'since']: op = '>'
+            elif prefix == 'before': op = '<'
+            constraint_target['year'] = (op, year)
             
-        # --- 3. Extract language constraint (Rule 2.3) ---
         lang_match = self.lang_regex.search(query)
         if lang_match:
             lang_name = lang_match.group(2).capitalize()
             lang_entities = self.entity_linker.link_entities(f"{lang_name} language")
             if lang_entities:
-                lang_id = lang_entities[0][1]
-                (negations if is_negated else constraints)['language'] = lang_id
+                constraint_target['language'] = lang_entities[0][1]
+
+        rating_match = self.rating_regex.search(query)
+        if rating_match:
+            op_str = rating_match.group(2).lower()
+            val_str = rating_match.group(3)
+            try:
+                val = float(val_str)
+                op = '>'
+                if op_str in ['below', 'less than', 'under', '<']:
+                    op = '<'
+                constraint_target['rating'] = (op, val)
+            except ValueError:
+                pass
 
         return preferences, constraints, negations
