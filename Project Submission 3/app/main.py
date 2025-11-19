@@ -7,7 +7,7 @@ from pydantic import BaseModel
 from agent.config import Config
 from agent.graph_executor import GraphExecutor
 from agent.embedding_executor import EmbeddingExecutor
-from agent.entity_linker import EntityLinker  # <--- Ensuring this is imported
+from agent.entity_linker import EntityLinker
 from agent.relation_mapper import RelationMapper
 from agent.composer import Composer
 from agent.nlq import NLQ
@@ -39,8 +39,8 @@ class Chatbot:
                 self.config.relation_index
             )
             
-            # Initialize Entity Linker (This matches the class name in agent/entity_linker.py)
-            self.entity_linker = EntityLinker()
+            # --- FIX: Pass the path found by Config to EntityLinker ---
+            self.entity_linker = EntityLinker(kg_path=str(self.config.graph_db))
             
             self.relation_mapper = RelationMapper()
             self.composer = Composer()

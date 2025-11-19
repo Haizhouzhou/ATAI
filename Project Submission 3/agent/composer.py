@@ -23,10 +23,12 @@ class Composer:
             raise ValueError("No variable found in triple.")
 
         select_clause = f"SELECT DISTINCT {select_var} ?{select_var[1:]}Label"
+        
+        # Relaxed label fetch for QA
         label_service = f"""
             OPTIONAL {{
                 {select_var} rdfs:label ?{select_var[1:]}Label .
-                FILTER(LANG(?{select_var[1:]}Label) = "en")
+                FILTER(LANGMATCHES(LANG(?{select_var[1:]}Label), "en") || LANG(?{select_var[1:]}Label) = "")
             }}
         """
         type_constraint_str = type_constraint if type_constraint else ""
@@ -73,7 +75,6 @@ class Composer:
                 
             if 'rating' in constraints:
                 op, val = constraints['rating']
-                # FIX: Cast to float for numerical comparison
                 triples.append(f"OPTIONAL {{ {movie_var} ddis:rating ?ratingVal . }}")
                 filters.append(f"FILTER(BOUND(?ratingVal) && (xsd:float(?ratingVal) {op} {val}))")
 
@@ -107,11 +108,13 @@ class Composer:
                 
                 {filter_triples}
                 
-                ?movie rdfs:label ?movieLabel .
-                FILTER(LANG(?movieLabel) = "en")
+                OPTIONAL {{
+                    ?movie rdfs:label ?movieLabel .
+                    FILTER(LANGMATCHES(LANG(?movieLabel), "en") || LANG(?movieLabel) = "")
+                }}
                 OPTIONAL {{
                     ?property rdfs:label ?propLabel .
-                    FILTER(LANG(?propLabel) = "en")
+                    FILTER(LANGMATCHES(LANG(?propLabel), "en") || LANG(?propLabel) = "")
                 }}
                 OPTIONAL {{ ?movie ddis:rating ?rating . }}
                 
@@ -143,8 +146,11 @@ class Composer:
             SELECT ?movie ?movieLabel ?rating
             WHERE {{
                 {triples_block}
-                ?movie rdfs:label ?movieLabel .
-                FILTER(LANG(?movieLabel) = "en")
+                
+                OPTIONAL {{
+                    ?movie rdfs:label ?movieLabel .
+                    FILTER(LANGMATCHES(LANG(?movieLabel), "en") || LANG(?movieLabel) = "")
+                }}
                 OPTIONAL {{ ?movie ddis:rating ?rating . }}
                 {filter_clauses}
             }}
@@ -154,15 +160,53 @@ class Composer:
         return query
 
     def get_image_query(self, movie_uris: List[str]) -> str:
+        """
+        Fetches images. Removed type constraint to be safer.
+        """
         if not movie_uris: return ""
-        values = " ".join([f"<{uri}>" for uri in movie_uris])
         
+        uri_list = []
+        for uri in movie_uris:
+            clean = uri.strip()
+            if not clean.startswith("<"):
+                clean = f"<{clean}>"
+            uri_list.append(clean)
+            
+        filter_str = ", ".join(uri_list)
+        
+        # REMOVED: ?movie wdt:P31 wd:Q11424 . (Make it optional or just trust the ID)
         query = f"""
             {self.prefixes}
             SELECT ?movie ?imageUrl
             WHERE {{
-                VALUES ?movie {{ {values} }}
                 ?movie wdt:P18 ?imageUrl .
+                FILTER (?movie IN ({filter_str}))
+            }}
+        """
+        return query
+
+    def get_labels_query(self, movie_uris: List[str]) -> str:
+        """
+        Fetches labels with relaxed language filter.
+        """
+        if not movie_uris: return ""
+        
+        uri_list = []
+        for uri in movie_uris:
+            clean = uri.strip()
+            if not clean.startswith("<"):
+                clean = f"<{clean}>"
+            uri_list.append(clean)
+        
+        filter_str = ", ".join(uri_list)
+        
+        query = f"""
+            {self.prefixes}
+            SELECT ?movie ?movieLabel
+            WHERE {{
+                ?movie rdfs:label ?movieLabel .
+                FILTER(LANGMATCHES(LANG(?movieLabel), "en") || LANG(?movieLabel) = "")
+                FILTER (?movie IN ({filter_str}))
             }}
         """
         return query
