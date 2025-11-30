@@ -1,101 +1,103 @@
-from __future__ import annotations
+import re
+import logging
+from typing import Dict, Any, List, Tuple
+from agent.entity_linker import EntityLinker
+from agent.relation_mapper import RelationMapper
+from agent.constants import (
+    RECOMMENDATION_KEYWORDS, QA_KEYWORDS, NEGATION_KEYWORDS,
+    PREFERENCE_KEYWORDS, FOLLOW_UP_KEYWORDS, SUPPORTED_LANGUAGES_REGEX
+)
+from agent.session_manager import Session
 
-"""
-Preference parser for recommendation queries.
-
-Given a natural-language description like:
-
-    "I loved Inception and Interstellar, recommend similar movies,
-     preferably in German or French."
-
-we try to extract:
-
-    - liked film URIs (based on entity linking)
-    - genre hints (keywords)
-    - language hints (keywords)
-"""
-
-from dataclasses import dataclass
-from typing import List, Optional
-
-from . import constants as C
-from .entity_linker import EntityLinker, LinkedEntity, get_global_entity_linker
-from .utils import unique_preserve_order
-
-
-@dataclass
-class UserPreferences:
-    liked_film_uris: List[str]
-    liked_film_titles: List[str]
-    genre_keywords: List[str]
-    language_keywords: List[str]
-
+logger = logging.getLogger(__name__)
 
 class PreferenceParser:
     """
-    Lightweight, rule-based parser for recommendation preferences.
+    Parses natural language queries to detect intent, extract preferences,
+    seed movies, and constraints for the recommendation engine.
     """
 
-    def __init__(self, linker: Optional[EntityLinker] = None) -> None:
-        self.linker: EntityLinker = linker or get_global_entity_linker()
+    def __init__(self, entity_linker: EntityLinker, relation_mapper: RelationMapper):
+        self.entity_linker = entity_linker
+        self.relation_mapper = relation_mapper
+        
+        # Regex for years (e.g., 1990, 1990s, after 2000)
+        self.year_regex = re.compile(r'(\b(after|before|since|from|in)\s+)?(\d{4})s?\b', re.IGNORECASE)
+        
+        # Regex for explicit languages (French, Japanese, etc.)
+        # We map the name to the Wikidata Q-ID directly here for robustness
+        self.lang_map = {
+            "french": "http://www.wikidata.org/entity/Q150",
+            "german": "http://www.wikidata.org/entity/Q188",
+            "spanish": "http://www.wikidata.org/entity/Q1321",
+            "english": "http://www.wikidata.org/entity/Q1860",
+            "italian": "http://www.wikidata.org/entity/Q652",
+            "japanese": "http://www.wikidata.org/entity/Q5287",
+            "korean": "http://www.wikidata.org/entity/Q9176",
+            "chinese": "http://www.wikidata.org/entity/Q7850",
+        }
 
-    # ------------------------------------------------------------------
-    # Public API
-    # ------------------------------------------------------------------
+        logger.info("PreferenceParser initialized.")
 
-    def parse(self, text: str, max_films: int = 5) -> UserPreferences:
-        """
-        Parse user preferences from text.
+    def parse(self, query: str, session: Session) -> Dict[str, Any]:
+        logger.debug(f"Parsing query: {query}")
+        query_lower = query.lower()
 
-        Returns a UserPreferences object where lists may be empty but
-        are never None.
-        """
-        films = self._extract_films(text, max_films=max_films)
-        film_uris = [f.uri for f in films]
-        film_titles = [f.label for f in films]
+        intent = self.detect_intent(query_lower)
+        seed_movies = self.extract_seed_movies(query)
+        preferences, constraints, negations = self.extract_preferences_and_constraints(query)
+        is_follow_up = any(keyword in query_lower for keyword in FOLLOW_UP_KEYWORDS)
 
-        genres = self._extract_genre_keywords(text)
-        languages = self._extract_language_keywords(text)
+        if seed_movies or preferences or constraints or negations:
+            intent = 'recommendation'
+            
+        return {
+            'intent': intent,
+            'seed_movies': seed_movies,
+            'preferences': preferences,
+            'constraints': constraints, # This passes the language constraint
+            'negations': negations,
+            'is_follow_up': is_follow_up
+        }
 
-        return UserPreferences(
-            liked_film_uris=film_uris,
-            liked_film_titles=film_titles,
-            genre_keywords=genres,
-            language_keywords=languages,
-        )
+    def detect_intent(self, query_lower: str) -> str:
+        if any(keyword in query_lower for keyword in RECOMMENDATION_KEYWORDS):
+            return 'recommendation'
+        if '?' not in query_lower and len(query_lower.split()) < 10:
+             return 'recommendation'
+        return 'qa'
 
-    # ------------------------------------------------------------------
-    # Internal helpers
-    # ------------------------------------------------------------------
+    def extract_seed_movies(self, query: str) -> List[str]:
+        # Use Linker's smart link method which handles quotes and lists
+        candidates = self.entity_linker.link(query)
+        # Candidates is list of (label, uri, score)
+        # We return just the URIs
+        return [uri for label, uri, score in candidates]
 
-    def _extract_films(self, text: str, max_films: int) -> List[LinkedEntity]:
-        # Use the entity linker to find movies mentioned in the text.
-        all_ents = self.linker.link_entities(text, max_candidates=20)
-        films = [e for e in all_ents if e.type == "film"]
-        # preserve order, truncate
-        seen = set()
-        result: List[LinkedEntity] = []
-        for f in films:
-            if f.uri in seen:
-                continue
-            seen.add(f.uri)
-            result.append(f)
-            if len(result) >= max_films:
-                break
-        return result
+    def extract_preferences_and_constraints(self, query: str) -> Tuple[Dict, Dict, Dict]:
+        preferences = {}
+        constraints = {}
+        negations = {}
+        
+        query_lower = query.lower()
+        
+        # 1. Extract Explicit Languages
+        for lang_name, lang_uri in self.lang_map.items():
+            # Check for "in Japanese", "Japanese movie", etc.
+            if lang_name in query_lower:
+                logger.info(f"Detected language constraint: {lang_name} -> {lang_uri}")
+                if "language" not in constraints:
+                    constraints["language"] = []
+                constraints["language"].append(lang_uri)
 
-    def _extract_genre_keywords(self, text: str) -> List[str]:
-        q = text.lower()
-        found = []
-        for g in C.POPULAR_GENRE_KEYWORDS:
-            if g in q:
-                found.append(g)
-        return unique_preserve_order(found)
+        # 2. Extract Genre/Actor/Director keywords
+        # (Simple heuristic)
+        for pref_type, keywords in PREFERENCE_KEYWORDS.items():
+            for keyword in keywords:
+                if keyword in query_lower:
+                    # Try to find entity after keyword? 
+                    # Ideally this is handled by entity linker seeds, but sometimes
+                    # we want to catch "Action movies" where "Action" is a genre constraint, not a seed movie.
+                    pass
 
-    def _extract_language_keywords(self, text: str) -> List[str]:
-        q = text.lower()
-        found = []
-        for lang in C.POPULAR_LANGUAGE_KEYWORDS:
-            if lang in q:
-                found.append(lang)
-        return unique_preserve_order(found)
+        return preferences, constraints, negations

@@ -1,0 +1,187 @@
+predicate_uri	pid	label	count
+http://www.wikidata.org/prop/direct/P161		cast member	159023
+http://www.wikidata.org/prop/direct/P136		genre	32162
+http://www.wikidata.org/prop/direct/P58		screenwriter	18296
+http://www.wikidata.org/prop/direct/P750		distributed by	18018
+http://www.wikidata.org/prop/direct/P1411		nominated for	17781
+http://www.wikidata.org/prop/direct/P495		country of origin	16521
+http://www.wikidata.org/prop/direct/P162		producer	15561
+http://www.wikidata.org/prop/direct/P364		original language of film or TV show	13773
+http://www.wikidata.org/prop/direct/P57		director	13168
+http://www.wikidata.org/prop/direct/P31		instance of	12412
+http://www.wikidata.org/prop/direct/P345		IMDb ID	12246
+http://www.wikidata.org/prop/direct/P577		publication date	12245
+http://www.wikidata.org/prop/direct/P462		color	11741
+http://www.wikidata.org/prop/direct/P272		production company	11687
+http://www.wikidata.org/prop/direct/P840		narrative location	11093
+http://www.wikidata.org/prop/direct/P86		composer	11089
+http://www.wikidata.org/prop/direct/P5021		assessment	10762
+http://www.wikidata.org/prop/direct/P344		director of photography	10669
+http://www.wikidata.org/prop/direct/P437		distribution format	9648
+http://www.wikidata.org/prop/direct/P915		filming location	9476
+http://www.wikidata.org/prop/direct/P166		award received	8990
+http://www.wikidata.org/prop/direct/P1040		film editor	8896
+http://www.wikidata.org/prop/direct/P921		main subject	8564
+http://www.wikidata.org/prop/direct/P674		characters	7867
+http://www.wikidata.org/prop/direct/P2758		CNC film rating (France)	7102
+http://www.wikidata.org/prop/direct/P1981		FSK film rating	6246
+http://www.wikidata.org/prop/direct/P2684		Kijkwijzer rating	5511
+http://www.wikidata.org/prop/direct/P5970		Medierådet rating	3855
+http://www.wikidata.org/prop/direct/P2554		production designer	3308
+http://www.wikidata.org/prop/direct/P2142		box office	3146
+http://www.wikidata.org/prop/direct/P144		based on	3005
+http://www.wikidata.org/prop/direct/P2747		Filmiroda rating	2894
+http://www.wikidata.org/prop/direct/P2515		costume designer	2370
+http://www.wikidata.org/prop/direct/P1657		MPA film rating	2147
+http://www.wikidata.org/prop/direct/P2061		aspect ratio (W:H)	2057
+http://www.wikidata.org/prop/direct/P1431		executive producer	2003
+http://www.wikidata.org/prop/direct/P725		voice actor	1981
+http://www.wikidata.org/prop/direct/P1877		after a work by	1739
+http://www.wikidata.org/prop/direct/P179		part of the series	1635
+http://www.wikidata.org/prop/direct/P2756		EIRIN film rating	1623
+http://www.wikidata.org/prop/direct/P8411		set in environment	1457
+http://www.wikidata.org/prop/direct/P2408		set in period	1434
+http://www.wikidata.org/prop/direct/P3306		ICAA rating	1404
+http://www.wikidata.org/prop/direct/P2363		NMHH film rating	1375
+http://www.wikidata.org/prop/direct/P3216		ClassInd rating	1270
+http://www.wikidata.org/prop/direct/P406		soundtrack release	1220
+http://www.wikidata.org/prop/direct/P3402		CNC film rating (Romania)	1176
+http://www.wikidata.org/prop/direct/P3650		JMK film rating	1153
+http://www.wikidata.org/prop/direct/P3156		Australian Classification	1104
+http://www.wikidata.org/prop/direct/P156		followed by	1057
+http://www.wikidata.org/prop/direct/P155		follows	1032
+http://www.wikidata.org/prop/direct/P3834		RTC film rating	880
+http://www.wikidata.org/prop/direct/P175		performer	840
+http://www.wikidata.org/prop/direct/P2629		BBFC rating	837
+http://www.wikidata.org/prop/direct/P1344		participant in	821
+http://www.wikidata.org/prop/direct/P5028		sound designer	774
+http://www.wikidata.org/prop/direct/P1552		has characteristic	763
+http://www.wikidata.org/prop/direct/P1889		different from	760
+http://www.wikidata.org/prop/direct/P3092		film crew member	719
+http://www.wikidata.org/prop/direct/P6658		RCQ classification	575
+http://www.wikidata.org/prop/direct/P361		part of	548
+http://www.wikidata.org/prop/direct/P1343		described by source	497
+http://www.wikidata.org/prop/direct/P7573		IFCO rating	481
+http://www.wikidata.org/prop/direct/P4969		derivative work	411
+http://www.wikidata.org/prop/direct/P2637		RARS rating	407
+http://www.wikidata.org/prop/direct/P1434		takes place in fictional universe	399
+http://www.wikidata.org/prop/direct/P407		language of work or name	392
+http://www.wikidata.org/prop/direct/P7937		form of creative work	387
+http://www.wikidata.org/prop/direct/P9215		set during recurring event	385
+http://www.wikidata.org/prop/direct/P5201		IMDA rating	379
+http://www.wikidata.org/prop/direct/P5150		IGAC rating	375
+http://www.wikidata.org/prop/direct/P138		named after	373
+http://www.wikidata.org/prop/direct/P195		collection	328
+http://www.wikidata.org/prop/direct/P3803		original film format	313
+http://www.wikidata.org/prop/direct/P180		depicts	297
+http://www.wikidata.org/prop/direct/P135		movement	288
+http://www.wikidata.org/prop/direct/P8345		media franchise	284
+http://www.wikidata.org/prop/direct/P4437		FPB rating	283
+http://www.wikidata.org/prop/direct/P6942		animator	273
+http://www.wikidata.org/prop/direct/P4805		make-up artist	267
+http://www.wikidata.org/prop/direct/P793		significant event	256
+http://www.wikidata.org/prop/direct/P3428		INCAA film rating	223
+http://www.wikidata.org/prop/direct/P170		creator	212
+http://www.wikidata.org/prop/direct/P3174		art director	207
+http://www.wikidata.org/prop/direct/P2438		narrator	205
+http://www.wikidata.org/prop/direct/P5072		presented in	192
+http://www.wikidata.org/prop/direct/P941		inspired by	175
+http://www.wikidata.org/prop/direct/P9086		BAMID film rating	175
+http://www.wikidata.org/prop/direct/P747		has edition or translation	171
+http://www.wikidata.org/prop/direct/P8874		Hong Kong film rating	143
+http://www.wikidata.org/prop/direct/P2079		fabrication method	137
+http://www.wikidata.org/prop/direct/P8371		references work, tradition or theory	128
+http://www.wikidata.org/prop/direct/P641		sport	115
+http://www.wikidata.org/prop/direct/P942		theme music	110
+http://www.wikidata.org/prop/direct/P3818		KMRB film rating	109
+http://www.wikidata.org/prop/direct/P11108		recorded participant	108
+http://www.wikidata.org/prop/direct/P8889		MTRCB rating	104
+http://www.wikidata.org/prop/direct/P767		contributor to the creative work or subject	100
+http://www.wikidata.org/prop/direct/P13459		research project that contributed to this data set	83
+http://www.wikidata.org/prop/direct/P2283		uses	77
+http://www.wikidata.org/prop/direct/P6962		narrative motif	70
+http://www.wikidata.org/prop/direct/P1809		choreographer	68
+http://www.wikidata.org/prop/direct/P825		dedicated to	66
+http://www.wikidata.org/prop/direct/P3275		storyboard artist	66
+http://www.wikidata.org/prop/direct/P4608		scenographer	65
+http://www.wikidata.org/prop/direct/P50		author	63
+http://www.wikidata.org/prop/direct/P527		has part(s)	63
+http://www.wikidata.org/prop/direct/P264		record label	54
+http://www.wikidata.org/prop/direct/P7327		OFLC classification	53
+http://www.wikidata.org/prop/direct/P10664		featured track(s)	52
+http://www.wikidata.org/prop/direct/P1476			50
+http://www.wikidata.org/prop/direct/P6166		quotes work	49
+http://www.wikidata.org/prop/direct/P5940		plot expanded in	47
+http://www.wikidata.org/prop/direct/P8324		funder	45
+http://www.wikidata.org/prop/direct/P2670		has part(s) of the class	45
+http://www.wikidata.org/prop/direct/P3301		broadcast by	43
+http://www.wikidata.org/prop/direct/P5707		samples from work	42
+http://www.wikidata.org/prop/direct/P5152		KAVI rating	39
+http://www.wikidata.org/prop/direct/P1433		published in	39
+http://www.wikidata.org/prop/direct/P4082		captured with	37
+http://www.wikidata.org/prop/direct/P449		original broadcaster	35
+http://www.wikidata.org/prop/direct/P5126		assistant director	34
+http://www.wikidata.org/prop/direct/P737		influenced by	33
+http://www.wikidata.org/prop/direct/P7137		acknowledged	32
+http://www.wikidata.org/prop/direct/P1412		languages spoken, written or signed	31
+http://www.wikidata.org/prop/direct/P2652		partnership with	29
+http://www.wikidata.org/prop/direct/P452		industry	24
+http://www.wikidata.org/prop/direct/P1269		facet of	22
+http://www.wikidata.org/prop/direct/P276		location	21
+http://www.wikidata.org/prop/direct/P4647		location of first performance	20
+http://www.wikidata.org/prop/direct/P123		publisher	19
+http://www.wikidata.org/prop/direct/P658		tracklist	15
+http://www.wikidata.org/prop/direct/P17		country	11
+http://www.wikidata.org/prop/direct/P859		sponsor	11
+http://www.wikidata.org/prop/direct/P2512		has spin-off	10
+http://www.wikidata.org/prop/direct/P485		archives at	10
+http://www.wikidata.org/prop/direct/P291		place of publication	10
+http://www.wikidata.org/prop/direct/P3342		significant person	8
+http://www.wikidata.org/prop/direct/P3300		musical conductor	8
+http://www.wikidata.org/prop/direct/P483		recorded at studio or venue	7
+http://www.wikidata.org/prop/direct/P98		editor	7
+http://www.wikidata.org/prop/direct/P121		item operated	7
+http://www.wikidata.org/prop/direct/P736		cover art by	6
+http://www.wikidata.org/prop/direct/P676		lyricist	6
+http://www.wikidata.org/prop/direct/P710		participant	6
+http://www.wikidata.org/prop/direct/P460		said to be the same as	5
+http://www.wikidata.org/prop/direct/P6886		writing language	4
+http://www.wikidata.org/prop/direct/P1435		heritage designation	4
+http://www.wikidata.org/prop/direct/P400		platform	4
+http://www.wikidata.org/prop/direct/P1542		has effect	4
+http://www.wikidata.org/prop/direct/P3919		contributed to creative work	3
+http://www.wikidata.org/prop/direct/P2522		competition won	3
+http://www.wikidata.org/prop/direct/P27		country of citizenship	3
+http://www.wikidata.org/prop/direct/P88		commissioned by	3
+http://www.wikidata.org/prop/direct/P2348		time period	2
+http://www.wikidata.org/prop/direct/P1441		present in work	2
+http://www.wikidata.org/prop/direct/P1027		conferred by	2
+http://www.wikidata.org/prop/direct/P110		illustrator	2
+http://www.wikidata.org/prop/direct/P2184		history of topic	2
+http://www.wikidata.org/prop/direct/P655		translator	2
+http://www.wikidata.org/prop/direct/P1444		destination point	2
+http://www.wikidata.org/prop/direct/P87		librettist	2
+http://www.wikidata.org/prop/direct/P127		owned by	2
+http://www.wikidata.org/prop/direct/P547		commemorates	2
+http://www.wikidata.org/prop/direct/P131		located in the administrative territorial entity	2
+http://www.wikidata.org/prop/direct/P2936		language used	1
+http://www.wikidata.org/prop/direct/P371		presenter	1
+http://www.wikidata.org/prop/direct/P275		copyright license	1
+http://www.wikidata.org/prop/direct/P140		religion or worldview	1
+http://www.wikidata.org/prop/direct/P611		religious order	1
+http://www.wikidata.org/prop/direct/P279		subclass of	1
+http://www.wikidata.org/prop/direct/P287		designed by	1
+http://www.wikidata.org/prop/direct/P1056		product or material produced	1
+http://www.wikidata.org/prop/direct/P1557		manifestation of	1
+http://www.wikidata.org/prop/direct/P1029		crew member	1
+http://www.wikidata.org/prop/direct/P828		has cause	1
+http://www.wikidata.org/prop/direct/P629		edition or translation of	1
+http://www.wikidata.org/prop/direct/P306		operating system	1
+http://www.wikidata.org/prop/direct/P479		input device	1
+http://www.wikidata.org/prop/direct/P607		participated in conflict	1
+http://www.wikidata.org/prop/direct/P6379		has works in the collection	1
+http://www.wikidata.org/prop/direct/P1142		political ideology	1
+http://www.wikidata.org/prop/direct/P4312		camera setup	1
+http://www.wikidata.org/prop/direct/P10606		notable role	1
+http://www.wikidata.org/prop/direct/P2860		cites work	1
+http://www.wikidata.org/prop/direct/P937		work location	1

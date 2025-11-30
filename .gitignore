@@ -1,1 +1,7 @@
 embeddings/RFC_entity_embeds.npy
+embeddings/RFC_entity_embeds.npy
+*.npy
+*.pt
+*.ckpt
+*.h5
+*.pkl

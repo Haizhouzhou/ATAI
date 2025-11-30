@@ -1,12 +1,3 @@
-from __future__ import annotations
-
-"""
-Agent package init.
-
-For convenience we re-export the main entrypoint that most callers
-care about: AgentCore and get_global_composer().
-"""
-
-from .composer import AgentCore, get_global_composer
-
-__all__ = ["AgentCore", "get_global_composer"]
+# This file makes 'agent' a Python package.
+# We import components directly from their modules (e.g. agent.config),
+# so this file can remain empty to avoid circular imports or name conflicts.

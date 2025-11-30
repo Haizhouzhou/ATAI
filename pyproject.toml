@@ -1,0 +1,29 @@
+[tool.poetry]
+name = "atai-ie2"
+version = "0.1.0"
+description = "ATAI IE2 factual + embedding QA agent for Nuvolos"
+readme = "README.md"
+package-mode = false
+
+[tool.poetry.dependencies]
+# FIX: Restrict Python to <3.13 to satisfy faiss requirements
+python = ">=3.10,<3.13"
+fastapi = "^0.115.0"
+uvicorn = {extras = ["standard"], version = "^0.32.0"}
+rdflib = "^7.0.0"
+regex = "^2024.9.11"
+rapidfuzz = "^3.9.6"
+nltk = "^3.9.1"
+pandas = "^2.2.2"
+numpy = "^2.1.1"
+scikit-learn = "^1.5.2"
+# FIX: Use faiss-cpu for the submission to ensure it runs on any grader's machine.
+# If you need GPU for training, install faiss-gpu manually in your training environment.
+faiss-cpu = "^1.8.0"
+
+[tool.poetry.group.dev.dependencies]
+pytest = "^8.2.0"
+
+[build-system]
+requires = ["poetry-core>=1.8.0"]
+build-backend = "poetry.core.masonry.api"
